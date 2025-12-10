@@ -1,0 +1,591 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+
+import { Task, AppState, DailyStat, ThemeColor } from './types';
+import { THEME_COLORS, STORAGE_KEY, THEME_KEY } from './constants';
+import { playSound } from './services/audio';
+
+import PadItem from './components/PadItem';
+import StatsPanel from './components/StatsPanel';
+import DeleteModal from './components/DeleteModal';
+import LoginModal from './components/LoginModal';
+
+// --- Helper Functions ---
+const getToday = () => new Date().toISOString().split('T')[0];
+
+const INITIAL_STATE: AppState = {
+  tasks: [],
+  history: []
+};
+
+function App() {
+  // --- State ---
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [history, setHistory] = useState<DailyStat[]>([]);
+  const [theme, setTheme] = useState<ThemeColor>(THEME_COLORS[0]);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  // Auth State
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  
+  // UI State
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showCongrats, setShowCongrats] = useState(false);
+  const [showThemePicker, setShowThemePicker] = useState(false);
+  
+  // Delete Modal State
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+  
+  // Edit/View State
+  const [currentTask, setCurrentTask] = useState<Task | null>(null); // For editing/viewing
+  const [isViewingInfo, setIsViewingInfo] = useState(false); // Mode: View vs Edit
+  
+  // Form State
+  const [formTitle, setFormTitle] = useState('');
+  const [formDesc, setFormDesc] = useState('');
+
+  // --- Initialization & Storage ---
+  useEffect(() => {
+    // 1. Check Auth Session
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isAuthenticated) {
+            setIsLoggedIn(true);
+            setUserEmail(data.user?.email || 'User');
+          }
+        }
+      } catch (error) {
+        // Backend might not be running in dev or offline
+        console.debug('Auth check failed (backend might be offline)');
+      }
+    };
+    checkAuth();
+
+    // 2. Load Theme
+    const savedThemeId = localStorage.getItem(THEME_KEY);
+    if (savedThemeId) {
+      const found = THEME_COLORS.find(t => t.id === savedThemeId);
+      if (found) setTheme(found);
+    }
+
+    // 3. Load Data
+    const savedData = localStorage.getItem(STORAGE_KEY);
+    if (savedData) {
+      const parsed: AppState = JSON.parse(savedData);
+      
+      // Daily Reset Logic
+      const today = getToday();
+      const updatedTasks = parsed.tasks.map(t => {
+        if (t.isCompleted && t.lastCompletedDate !== today) {
+          return { ...t, isCompleted: false, lastCompletedDate: null };
+        }
+        return t;
+      });
+
+      setTasks(updatedTasks);
+      setHistory(parsed.history);
+    } else {
+      setTasks(INITIAL_STATE.tasks);
+      setHistory(INITIAL_STATE.history);
+    }
+  }, []);
+
+  // Save on Change
+  useEffect(() => {
+    const data: AppState = { tasks, history };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }, [tasks, history]);
+
+  // Save Theme
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, theme.id);
+  }, [theme]);
+
+  // --- Logic ---
+
+  const handleCreateTask = () => {
+    if (!formTitle.trim()) return;
+    
+    const newTask: Task = {
+      id: uuidv4(),
+      title: formTitle,
+      description: formDesc,
+      isCompleted: false,
+      lastCompletedDate: null,
+      createdAt: Date.now()
+    };
+    
+    setTasks(prev => [...prev, newTask]);
+    closeModal();
+    if (soundEnabled) playSound('click');
+  };
+
+  const handleUpdateTask = () => {
+    if (!currentTask || !formTitle.trim()) return;
+    
+    setTasks(prev => prev.map(t => 
+      t.id === currentTask.id 
+        ? { ...t, title: formTitle, description: formDesc }
+        : t
+    ));
+    closeModal();
+  };
+
+  const handleDeleteRequest = (id: string) => {
+    setDeleteTaskId(id);
+  };
+
+  const confirmDeleteTask = () => {
+    if (deleteTaskId) {
+      setTasks(prev => prev.filter(t => t.id !== deleteTaskId));
+      if (soundEnabled) playSound('click');
+      setDeleteTaskId(null);
+    }
+  };
+
+  const handleToggleTask = (id: string) => {
+    const today = getToday();
+    let justFinishedAll = false;
+
+    setTasks(prev => {
+      const newTasks = prev.map(t => {
+        if (t.id === id) {
+          const newState = !t.isCompleted;
+          if (newState && soundEnabled) playSound('check');
+          return {
+            ...t,
+            isCompleted: newState,
+            lastCompletedDate: newState ? today : null
+          };
+        }
+        return t;
+      });
+
+      // Check if all tasks are now completed
+      const allCompleted = newTasks.length > 0 && newTasks.every(t => t.isCompleted);
+      const wasAllCompleted = prev.length > 0 && prev.every(t => t.isCompleted);
+      
+      if (allCompleted && !wasAllCompleted) {
+        justFinishedAll = true;
+      }
+
+      return newTasks;
+    });
+
+    // Update History logic (Simple: Update today's entry)
+    setHistory(prev => {
+      const newHistory = [...prev];
+      const todayIndex = newHistory.findIndex(h => h.date === today);
+      return newHistory;
+    });
+
+    if (justFinishedAll) {
+      setTimeout(() => {
+        if (soundEnabled) playSound('complete');
+        setShowCongrats(true);
+      }, 300);
+    }
+  };
+
+  // Sync History whenever tasks change
+  useEffect(() => {
+    const today = getToday();
+    const completedCount = tasks.filter(t => t.isCompleted).length;
+    
+    setHistory(prev => {
+      const index = prev.findIndex(h => h.date === today);
+      if (index >= 0) {
+        const updated = [...prev];
+        updated[index] = { ...updated[index], completedCount, totalTasksAtEnd: tasks.length };
+        return updated;
+      } else {
+        return [...prev, { date: today, completedCount, totalTasksAtEnd: tasks.length }];
+      }
+    });
+  }, [tasks]);
+
+  // Auth Handlers
+  const handleLoginSuccess = (email: string) => {
+    setIsLoggedIn(true);
+    setUserEmail(email);
+    if (soundEnabled) playSound('complete');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setIsLoggedIn(false);
+      setUserEmail(null);
+      if (soundEnabled) playSound('click');
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+  };
+
+  // --- Modals ---
+
+  const openCreateModal = () => {
+    setFormTitle('');
+    setFormDesc('');
+    setCurrentTask(null);
+    setIsViewingInfo(false);
+    setShowTaskModal(true);
+  };
+
+  const openEditModal = (task: Task) => {
+    setFormTitle(task.title);
+    setFormDesc(task.description);
+    setCurrentTask(task);
+    setIsViewingInfo(false);
+    setShowTaskModal(true);
+  };
+
+  const openInfoModal = (task: Task) => {
+    setFormTitle(task.title);
+    setFormDesc(task.description);
+    setCurrentTask(task);
+    setIsViewingInfo(true);
+    setShowTaskModal(true);
+  };
+
+  const closeModal = () => {
+    setShowTaskModal(false);
+    setCurrentTask(null);
+  };
+
+  // Stats Calculations
+  const completedToday = tasks.filter(t => t.isCompleted).length;
+  // Naive streak calculation
+  const calculateStreak = () => {
+    let streak = 0;
+    const sortedHistory = [...history].sort((a, b) => b.date.localeCompare(a.date)); // Newest first
+    const today = getToday();
+    
+    // Check today first
+    const todayStat = sortedHistory.find(h => h.date === today);
+    if (todayStat && todayStat.completedCount > 0) {
+      streak++;
+    }
+
+    // Check previous days
+    let checkDate = new Date();
+    checkDate.setDate(checkDate.getDate() - 1);
+    
+    for (let i = 0; i < sortedHistory.length; i++) {
+        const dateStr = checkDate.toISOString().split('T')[0];
+        const stat = sortedHistory.find(h => h.date === dateStr);
+        if (stat && stat.completedCount >= 1) { // Simplistic streak: at least 1 task done
+            streak++;
+            checkDate.setDate(checkDate.getDate() - 1);
+        } else if (stat) {
+            break; 
+        }
+    }
+    return streak;
+  };
+
+  const taskToDelete = tasks.find(t => t.id === deleteTaskId);
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+      
+      {/* Sidebar (Desktop: Hover to expand, Mobile: Toggle) */}
+      <div 
+        className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out ${isStatsOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static md:w-16 hover:md:w-80 group shadow-2xl`}
+      >
+        <div className="h-full w-full bg-zinc-900 border-r border-zinc-800 md:w-16 md:group-hover:w-80 transition-all duration-300 overflow-hidden relative">
+           {/* Sidebar visible content (icon strip) */}
+           <div className="absolute left-0 top-0 w-16 h-full flex flex-col items-center py-6 gap-8 z-10 bg-zinc-900 md:bg-transparent pointer-events-none md:pointer-events-auto">
+              <button onClick={() => setIsStatsOpen(!isStatsOpen)} className="md:hidden p-2 bg-zinc-800 rounded-lg pointer-events-auto">
+                <X size={20} />
+              </button>
+              <div className="hidden md:block">
+                 <Menu size={24} className="text-zinc-500 group-hover:text-white transition-colors" />
+              </div>
+              
+              {/* Login Icon in Sidebar Strip */}
+              <button 
+                onClick={() => isLoggedIn ? handleLogout() : setShowLoginModal(true)}
+                className={`hidden md:flex p-2 rounded-full transition-colors pointer-events-auto ${isLoggedIn ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white'}`}
+                title={isLoggedIn ? "Log Out" : "Log In"}
+              >
+                 {isLoggedIn ? <User size={24} /> : <User size={24} />}
+              </button>
+
+              <div className="mt-auto flex flex-col gap-4 mb-4 pointer-events-auto">
+                 <button onClick={() => setShowThemePicker(!showThemePicker)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+                    <Settings size={24} />
+                 </button>
+                 <button onClick={() => setSoundEnabled(!soundEnabled)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+                    {soundEnabled ? <Volume2 size={24} /> : <VolumeX size={24} />}
+                 </button>
+              </div>
+           </div>
+
+           {/* Expanded Content */}
+           <div className="w-80 h-full pl-16 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 delay-75 flex flex-col">
+             
+             {/* Auth Section in Expanded Sidebar */}
+             <div className="p-6 pb-2 border-b border-zinc-800/50">
+                {isLoggedIn ? (
+                  <div className="flex items-center justify-between bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center font-bold text-xs border border-zinc-600">
+                        {userEmail ? userEmail[0].toUpperCase() : 'U'}
+                      </div>
+                      <div className="flex flex-col truncate">
+                        <span className="text-xs text-zinc-400">Signed in as</span>
+                        <span className="text-sm font-medium text-white truncate max-w-[120px]">{userEmail}</span>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={handleLogout}
+                      className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors"
+                      title="Log Out"
+                    >
+                      <LogOut size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => setShowLoginModal(true)}
+                    className="w-full py-3 rounded-xl font-bold bg-zinc-100 text-zinc-900 hover:bg-white transition-colors flex items-center justify-center gap-2"
+                  >
+                    <User size={18} />
+                    Login / Sync
+                  </button>
+                )}
+             </div>
+
+             <div className="flex-1 overflow-y-auto">
+                <StatsPanel 
+                  history={history} 
+                  currentStreak={calculateStreak()} 
+                  totalCompletedToday={completedToday}
+                  themeColor={theme.hex}
+                />
+             </div>
+           </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col relative h-full overflow-hidden">
+        {/* Header */}
+        <header className="flex items-center justify-between px-6 py-6 bg-zinc-950/90 backdrop-blur-sm z-30">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setIsStatsOpen(true)} className="md:hidden p-2 bg-zinc-800 rounded-full text-zinc-400">
+              <Menu size={20} />
+            </button>
+            <h1 className="text-2xl font-bold tracking-tighter">
+              GROOVE<span style={{ color: theme.hex }}>TASK</span>
+            </h1>
+          </div>
+          <button 
+            onClick={openCreateModal}
+            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-900 rounded-full font-semibold hover:bg-white hover:scale-105 transition-all shadow-lg shadow-zinc-500/10"
+          >
+            <Plus size={18} />
+            <span className="hidden sm:inline">Add Track</span>
+          </button>
+        </header>
+
+        {/* Grid Area */}
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          {tasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-zinc-600 space-y-4">
+              <div className="w-24 h-24 border-2 border-dashed border-zinc-800 rounded-2xl flex items-center justify-center">
+                <Plus size={32} className="opacity-50"/>
+              </div>
+              <p>No tracks in your mix yet.</p>
+              <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">Create one now</button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
+              {tasks.map(task => (
+                <PadItem 
+                  key={task.id} 
+                  task={task} 
+                  themeColor={theme.hex} 
+                  themeShadow={theme.shadow}
+                  onToggle={handleToggleTask}
+                  onEdit={openEditModal}
+                  onDelete={handleDeleteRequest}
+                  onViewInfo={openInfoModal}
+                />
+              ))}
+              
+              {/* Add Button as a Pad */}
+              <button 
+                onClick={openCreateModal}
+                className="aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
+              >
+                <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
+                <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">Add</span>
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* Task Modal (Create / Edit / Info) */}
+      {showTaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden transform scale-100 transition-all">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-6">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                   {isViewingInfo ? <Info className="text-zinc-500"/> : null}
+                   {isViewingInfo ? 'Track Details' : (currentTask ? 'Remix Track' : 'New Track')}
+                </h2>
+                <button onClick={closeModal} className="text-zinc-500 hover:text-white transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+
+              {isViewingInfo ? (
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">Title</h3>
+                    <p className="text-lg text-white font-medium">{formTitle}</p>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">Details</h3>
+                    <div className="bg-zinc-950/50 p-4 rounded-xl border border-zinc-800 min-h-[100px] text-zinc-300 whitespace-pre-wrap">
+                      {formDesc || "No additional details provided."}
+                    </div>
+                  </div>
+                  <div className="pt-4 flex justify-end">
+                     <button 
+                       onClick={() => { setIsViewingInfo(false); }}
+                       className="text-sm text-zinc-400 hover:text-white underline"
+                     >
+                       Edit this track
+                     </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">Title</label>
+                    <input 
+                      autoFocus
+                      type="text" 
+                      value={formTitle}
+                      onChange={(e) => setFormTitle(e.target.value)}
+                      maxLength={40}
+                      placeholder="e.g. Drink Water"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900"
+                      style={{ '--tw-ring-color': theme.hex } as React.CSSProperties}
+                    />
+                    <p className="text-xs text-right text-zinc-600 mt-1">{formTitle.length}/40</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">Description (Optional)</label>
+                    <textarea 
+                      value={formDesc}
+                      onChange={(e) => setFormDesc(e.target.value)}
+                      placeholder="Add more context..."
+                      rows={4}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900 resize-none"
+                      style={{ '--tw-ring-color': theme.hex } as React.CSSProperties}
+                    />
+                  </div>
+                  <div className="pt-4 flex gap-3">
+                    <button 
+                      onClick={closeModal}
+                      className="flex-1 py-3 rounded-xl font-medium text-zinc-400 hover:bg-zinc-800 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={currentTask ? handleUpdateTask : handleCreateTask}
+                      disabled={!formTitle.trim()}
+                      className="flex-1 py-3 rounded-xl font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ backgroundColor: theme.hex, boxShadow: `0 4px 14px ${theme.shadow}` }}
+                    >
+                      {currentTask ? 'Update' : 'Create'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Delete Confirmation Modal */}
+      <DeleteModal 
+        isOpen={!!deleteTaskId} 
+        onClose={() => setDeleteTaskId(null)} 
+        onConfirm={confirmDeleteTask}
+        taskTitle={taskToDelete?.title}
+      />
+
+      {/* Login Modal */}
+      <LoginModal 
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onLoginSuccess={handleLoginSuccess}
+        themeColor={theme.hex}
+      />
+
+      {/* Theme Picker Modal */}
+      {showThemePicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowThemePicker(false)}>
+           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+             <h2 className="text-xl font-bold mb-4 text-white">Studio Lighting</h2>
+             <div className="grid grid-cols-3 gap-4">
+                {THEME_COLORS.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => { setTheme(c); setShowThemePicker(false); }}
+                    className={`flex flex-col items-center gap-2 p-2 rounded-xl transition-all ${theme.id === c.id ? 'bg-zinc-800 ring-2 ring-white' : 'hover:bg-zinc-800'}`}
+                  >
+                    <div className="w-10 h-10 rounded-full shadow-lg" style={{ backgroundColor: c.hex, boxShadow: `0 0 10px ${c.shadow}` }} />
+                    <span className="text-xs font-medium text-zinc-400">{c.name}</span>
+                  </button>
+                ))}
+             </div>
+           </div>
+        </div>
+      )}
+
+      {/* Congrats Modal */}
+      {showCongrats && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in zoom-in duration-300">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-8 text-center max-w-sm shadow-2xl relative overflow-hidden">
+            {/* Background Glow */}
+            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))]" style={{ '--tw-gradient-from': theme.hex, '--tw-gradient-to': 'transparent' } as React.CSSProperties}></div>
+            
+            <div className="relative z-10 space-y-6">
+              <div className="mx-auto w-20 h-20 rounded-full flex items-center justify-center bg-zinc-800 border-4 border-zinc-700 shadow-xl" style={{ borderColor: theme.hex }}>
+                <Volume2 size={40} style={{ color: theme.hex }} className="animate-pulse" />
+              </div>
+              <div>
+                <h2 className="text-3xl font-bold text-white mb-2">Mix Complete!</h2>
+                <p className="text-zinc-400">You've cleared the deck for today. Excellent rhythm.</p>
+              </div>
+              <button 
+                onClick={() => setShowCongrats(false)}
+                className="w-full py-3 rounded-xl font-bold text-zinc-900 transition-transform hover:scale-105"
+                style={{ backgroundColor: theme.hex }}
+              >
+                Keep Groovin'
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;

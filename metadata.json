@@ -1,0 +1,5 @@
+{
+  "name": "GrooveTask",
+  "description": "A daily task manager inspired by DJ samplers. Create beats of productivity by checking off tasks on a grid. Features daily resets, analytics, and customizable themes.",
+  "requestFramePermissions": []
+}
