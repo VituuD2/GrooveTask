@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Mail, Loader2, X, AlertCircle } from 'lucide-react';
+import { Lock, Mail, Loader2, X, AlertCircle, UserPlus, LogIn } from 'lucide-react';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -9,8 +9,10 @@ interface LoginModalProps {
 }
 
 const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess, themeColor }) => {
+  const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,8 +23,17 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
     setIsLoading(true);
     setError(null);
 
+    // Basic Validation
+    if (isRegistering && password !== confirmPassword) {
+      setError("Passwords do not match");
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      const res = await fetch('/api/auth/login', {
+      const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login';
+      
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -31,18 +42,32 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Login failed');
+        throw new Error(data.error || 'Authentication failed');
       }
 
       // Success
       onLoginSuccess(data.user?.email || email);
       onClose();
+      // Reset form after close
+      setTimeout(() => {
+        setEmail('');
+        setPassword('');
+        setConfirmPassword('');
+        setIsRegistering(false);
+      }, 300);
       
     } catch (err: any) {
       setError(err.message);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const toggleMode = () => {
+    setIsRegistering(!isRegistering);
+    setError(null);
+    setPassword('');
+    setConfirmPassword('');
   };
 
   return (
@@ -57,8 +82,17 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Lock size={20} style={{ color: themeColor }} />
-              Backstage Access
+              {isRegistering ? (
+                <>
+                  <UserPlus size={20} style={{ color: themeColor }} />
+                  New Artist Registration
+                </>
+              ) : (
+                <>
+                  <Lock size={20} style={{ color: themeColor }} />
+                  Backstage Access
+                </>
+              )}
             </h2>
             <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors">
               <X size={20} />
@@ -101,9 +135,30 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
                   style={{ '--tw-ring-color': themeColor } as React.CSSProperties}
                   placeholder="••••••••"
                   required
+                  minLength={8}
                 />
               </div>
             </div>
+
+            {isRegistering && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Confirm Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 text-zinc-600" size={18} />
+                  <input 
+                    type="password"
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    className={`w-full bg-zinc-950 border rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900 placeholder:text-zinc-700 ${
+                      confirmPassword && password !== confirmPassword ? 'border-red-500/50 focus:border-red-500' : 'border-zinc-800'
+                    }`}
+                    style={{ '--tw-ring-color': confirmPassword && password !== confirmPassword ? '#ef4444' : themeColor } as React.CSSProperties}
+                    placeholder="••••••••"
+                    required
+                  />
+                </div>
+              </div>
+            )}
 
             <button 
               type="submit"
@@ -114,17 +169,26 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
               {isLoading ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  Authenticating...
+                  {isRegistering ? 'Creating Account...' : 'Authenticating...'}
                 </>
               ) : (
-                'Log In'
+                <>
+                   {isRegistering ? <UserPlus size={18}/> : <LogIn size={18}/>}
+                   {isRegistering ? 'Join the Mix' : 'Log In'}
+                </>
               )}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-xs text-zinc-600">
-            Don't have an account? <span className="underline hover:text-zinc-400 cursor-pointer">Register</span>
-          </p>
+          <div className="mt-6 text-center text-xs text-zinc-600">
+            {isRegistering ? 'Already have an account? ' : "Don't have an account? "}
+            <button 
+              onClick={toggleMode}
+              className="underline hover:text-zinc-400 cursor-pointer font-medium focus:outline-none"
+            >
+              {isRegistering ? 'Log In' : 'Register'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,36 +1,26 @@
-import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import helmet from 'helmet';
+import { Redis } from '@upstash/redis';
+import { v4 as uuidv4 } from 'uuid';
 
-// --- MOCK DATABASE INTERFACE ---
+// --- DATABASE CONFIGURATION ---
+// Expects UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in environment variables
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL || 'https://mock-url-for-build.com',
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || 'mock-token',
+});
+
 interface User {
   id: string;
   email: string;
   passwordHash: string;
+  createdAt: number;
 }
-
-const MOCK_DB: User[] = [
-  {
-    id: 'user_123',
-    email: 'user@example.com',
-    passwordHash: '$2a$10$w.2.1.2.3.4.5.6.7.8.9.0.1.2.3.4.5.6.7.8.9.0.1.2.3' 
-  }
-];
-
-const db = {
-  getUserByEmail: async (email: string): Promise<User | null> => {
-    await new Promise(resolve => setTimeout(resolve, 50)); 
-    return MOCK_DB.find(u => u.email === email) || null;
-  },
-  getUserById: async (id: string): Promise<User | null> => {
-    await new Promise(resolve => setTimeout(resolve, 50));
-    return MOCK_DB.find(u => u.id === id) || null;
-  }
-};
 
 // --- SECURITY CONFIGURATION ---
 
@@ -38,38 +28,34 @@ const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_do_not_use_in_prod';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
-app.use(helmet() as unknown as RequestHandler);
-app.use(express.json() as unknown as RequestHandler);
-app.use(cookieParser() as unknown as RequestHandler);
+// Use 'as any' to avoid TS overload errors with middleware
+app.use(helmet() as any);
+app.use(express.json() as any);
+app.use(cookieParser() as any);
 
 // Rate Limiting
-const loginLimiter = rateLimit({
+const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 5, 
-  message: { error: 'Too many login attempts, please try again later.' },
+  max: 10, // Slightly increased for testing
+  message: { error: 'Too many attempts, please try again later.' },
   standardHeaders: true, 
   legacyHeaders: false, 
 });
 
-// Timing Attack Prep
-let DUMMY_HASH = '';
-(async () => {
-  DUMMY_HASH = await bcrypt.hash('dummy_timing_attack_prevention', 10);
-})();
-
 // Validation Schema
-const loginSchema = z.object({
+const authSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
 // --- MIDDLEWARE ---
-interface AuthRequest extends ExpressRequest {
+interface AuthRequest extends Request {
   user?: { uid: string; email: string };
+  // cookies is usually declared by cookie-parser, but strict mode might miss it
   cookies: { [key: string]: string };
 }
 
-const requireAuth = (req: ExpressRequest, res: ExpressResponse, next: NextFunction) => {
+const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   const authReq = req as AuthRequest;
   const token = authReq.cookies?.auth_session;
   
@@ -86,25 +72,90 @@ const requireAuth = (req: ExpressRequest, res: ExpressResponse, next: NextFuncti
   }
 };
 
+const setAuthCookie = (res: Response, token: string) => {
+  res.cookie('auth_session', token, {
+    httpOnly: true, 
+    secure: IS_PROD, 
+    sameSite: 'strict', 
+    maxAge: 30 * 24 * 60 * 60 * 1000, 
+    path: '/', 
+  });
+};
+
 // --- ENDPOINTS ---
 
-// 1. Login
-app.post('/api/auth/login', loginLimiter as unknown as RequestHandler, async (req: ExpressRequest, res: ExpressResponse) => {
+// 1. Register
+app.post('/api/auth/register', authLimiter as any, async (req: Request, res: Response) => {
   try {
-    const validationResult = loginSchema.safeParse(req.body);
+    const validationResult = authSchema.safeParse(req.body);
     
     if (!validationResult.success) {
       return res.status(400).json({ error: 'Invalid input format' });
     }
 
     const { email, password } = validationResult.data;
-    const user = await db.getUserByEmail(email);
+    const userKey = `user:${email.toLowerCase()}`;
 
-    // Timing Attack Mitigation
-    const hashToCompare = user ? user.passwordHash : DUMMY_HASH;
-    const isMatch = await bcrypt.compare(password, hashToCompare);
+    // Check if user exists
+    const existingUser = await redis.get(userKey);
+    if (existingUser) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
 
-    if (!user || !isMatch) {
+    // Create new user
+    const passwordHash = await bcrypt.hash(password, 10);
+    const newUser: User = {
+      id: uuidv4(),
+      email: email.toLowerCase(),
+      passwordHash,
+      createdAt: Date.now()
+    };
+
+    // Save to Redis
+    await redis.set(userKey, newUser);
+
+    // Auto-login (Create Token)
+    const token = jwt.sign(
+      { uid: newUser.id, email: newUser.email }, 
+      JWT_SECRET, 
+      { expiresIn: '30d' }
+    );
+
+    setAuthCookie(res, token);
+
+    return res.status(201).json({ success: true, message: 'Account created', user: { email: newUser.email } });
+
+  } catch (error) {
+    console.error('Register error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 2. Login
+app.post('/api/auth/login', authLimiter as any, async (req: Request, res: Response) => {
+  try {
+    const validationResult = authSchema.safeParse(req.body);
+    
+    if (!validationResult.success) {
+      return res.status(400).json({ error: 'Invalid input format' });
+    }
+
+    const { email, password } = validationResult.data;
+    const userKey = `user:${email.toLowerCase()}`;
+    
+    // Fetch user from Redis
+    const user = await redis.get<User>(userKey);
+
+    // Timing Attack Mitigation (Always hash something)
+    if (!user) {
+      const dummyHash = await bcrypt.hash('dummy', 10);
+      await bcrypt.compare(password, dummyHash);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+
+    if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -115,14 +166,7 @@ app.post('/api/auth/login', loginLimiter as unknown as RequestHandler, async (re
       { expiresIn: '30d' }
     );
 
-    // Set Cookie
-    res.cookie('auth_session', token, {
-      httpOnly: true, 
-      secure: IS_PROD, 
-      sameSite: 'strict', 
-      maxAge: 30 * 24 * 60 * 60 * 1000, 
-      path: '/', 
-    });
+    setAuthCookie(res, token);
 
     return res.status(200).json({ success: true, message: 'Logged in successfully', user: { email: user.email } });
 
@@ -132,8 +176,8 @@ app.post('/api/auth/login', loginLimiter as unknown as RequestHandler, async (re
   }
 });
 
-// 2. Logout
-app.post('/api/auth/logout', (req: ExpressRequest, res: ExpressResponse) => {
+// 3. Logout
+app.post('/api/auth/logout', (req: Request, res: Response) => {
   res.clearCookie('auth_session', {
     httpOnly: true,
     secure: IS_PROD,
@@ -143,8 +187,8 @@ app.post('/api/auth/logout', (req: ExpressRequest, res: ExpressResponse) => {
   return res.status(200).json({ message: 'Logged out' });
 });
 
-// 3. Me (Check Session)
-app.get('/api/auth/me', requireAuth, async (req: ExpressRequest, res: ExpressResponse) => {
+// 4. Me (Check Session)
+app.get('/api/auth/me', requireAuth as any, async (req: Request, res: Response) => {
   // If middleware passes, token is valid
   const authReq = req as AuthRequest;
   return res.status(200).json({ 
