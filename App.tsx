@@ -62,6 +62,36 @@ function App() {
   const dataSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isRemoteUpdate = useRef(false);
 
+  // --- Dynamic Favicon Effect ---
+  useEffect(() => {
+    const updateFavicon = () => {
+      // Encode the hex color for URL (replace # with %23)
+      const encodedColor = encodeURIComponent(theme.hex);
+      
+      // Create SVG string with the theme color
+      const svg = `
+        <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>
+          <rect width='100' height='100' fill='%2318181b' rx='20'/>
+          <rect x='25' y='25' width='50' height='50' fill='${encodedColor}' rx='10'/>
+          <circle cx='75' cy='25' r='5' fill='%2352525b'/>
+        </svg>
+      `.trim().replace(/\s+/g, ' '); // Minimize whitespace
+
+      // Find existing favicon or create new one
+      let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      
+      link.type = 'image/svg+xml';
+      link.href = `data:image/svg+xml,${svg}`;
+    };
+
+    updateFavicon();
+  }, [theme]);
+
   // --- Initialization & Storage ---
   useEffect(() => {
     // 1. Check Auth Session
@@ -414,7 +444,8 @@ function App() {
               
               <button 
                 onClick={() => isLoggedIn ? handleLogout() : setShowLoginModal(true)}
-                className={`hidden md:flex p-2 rounded-full transition-colors pointer-events-auto ${isLoggedIn ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white'}`}
+                className={`hidden md:flex p-2 rounded-full transition-colors pointer-events-auto ${isLoggedIn ? '' : 'text-zinc-500 hover:text-white'}`}
+                style={isLoggedIn ? { color: theme.hex, backgroundColor: `${theme.hex}20` } : {}}
                 title={isLoggedIn ? t.logout : t.logIn}
               >
                  {isLoggedIn ? <User size={24} /> : <User size={24} />}
@@ -437,7 +468,10 @@ function App() {
                 {isLoggedIn ? (
                   <div className="flex items-center justify-between bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50">
                     <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 flex items-center justify-center font-bold text-xs border border-zinc-600">
+                      <div 
+                        className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center font-bold text-xs border shadow-sm transition-all"
+                        style={{ borderColor: theme.hex, color: theme.hex, boxShadow: `0 0 8px ${theme.shadow}` }}
+                      >
                         {userEmail ? userEmail[0].toUpperCase() : 'U'}
                       </div>
                       <div className="flex flex-col truncate">
