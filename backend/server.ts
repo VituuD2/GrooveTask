@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction, RequestHandler } from 'express';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
@@ -38,9 +38,9 @@ const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_do_not_use_in_prod';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
-app.use(helmet());
-app.use(express.json());
-app.use(cookieParser());
+app.use(helmet() as unknown as RequestHandler);
+app.use(express.json() as unknown as RequestHandler);
+app.use(cookieParser() as unknown as RequestHandler);
 
 // Rate Limiting
 const loginLimiter = rateLimit({
@@ -64,13 +64,14 @@ const loginSchema = z.object({
 });
 
 // --- MIDDLEWARE ---
-interface AuthRequest extends Request {
+interface AuthRequest extends ExpressRequest {
   user?: { uid: string; email: string };
   cookies: { [key: string]: string };
 }
 
-const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
-  const token = req.cookies.auth_session;
+const requireAuth = (req: ExpressRequest, res: ExpressResponse, next: NextFunction) => {
+  const authReq = req as AuthRequest;
+  const token = authReq.cookies?.auth_session;
   
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -78,7 +79,7 @@ const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { uid: string; email: string };
-    req.user = decoded;
+    authReq.user = decoded;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -88,7 +89,7 @@ const requireAuth = (req: AuthRequest, res: Response, next: NextFunction) => {
 // --- ENDPOINTS ---
 
 // 1. Login
-app.post('/api/auth/login', loginLimiter, async (req: Request, res: Response) => {
+app.post('/api/auth/login', loginLimiter as unknown as RequestHandler, async (req: ExpressRequest, res: ExpressResponse) => {
   try {
     const validationResult = loginSchema.safeParse(req.body);
     
@@ -132,7 +133,7 @@ app.post('/api/auth/login', loginLimiter, async (req: Request, res: Response) =>
 });
 
 // 2. Logout
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', (req: ExpressRequest, res: ExpressResponse) => {
   res.clearCookie('auth_session', {
     httpOnly: true,
     secure: IS_PROD,
@@ -143,11 +144,12 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // 3. Me (Check Session)
-app.get('/api/auth/me', requireAuth, async (req: AuthRequest, res: Response) => {
+app.get('/api/auth/me', requireAuth, async (req: ExpressRequest, res: ExpressResponse) => {
   // If middleware passes, token is valid
+  const authReq = req as AuthRequest;
   return res.status(200).json({ 
     isAuthenticated: true, 
-    user: { email: req.user?.email } 
+    user: { email: authReq.user?.email } 
   });
 });
 
