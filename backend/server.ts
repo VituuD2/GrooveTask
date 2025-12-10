@@ -9,10 +9,10 @@ import { Redis } from '@upstash/redis';
 import { v4 as uuidv4 } from 'uuid';
 
 // --- DATABASE CONFIGURATION ---
-// Expects UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in environment variables
+// We check standard Upstash env vars, Vercel KV vars, and finally fallback to the hardcoded keys provided.
 const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL || 'https://mock-url-for-build.com',
-  token: process.env.UPSTASH_REDIS_REST_TOKEN || 'mock-token',
+  url: process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || 'https://oriented-escargot-7784.upstash.io',
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || 'AR5oAAImcDFiZGQ3YjIwZDg3ODI0OTdiOGIyYTBhY2FhZTQ5YjRlM3AxNzc4NA',
 });
 
 interface User {
@@ -36,7 +36,7 @@ app.use(cookieParser() as any);
 // Rate Limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 10, // Slightly increased for testing
+  max: 10, 
   message: { error: 'Too many attempts, please try again later.' },
   standardHeaders: true, 
   legacyHeaders: false, 
@@ -51,11 +51,10 @@ const authSchema = z.object({
 // --- MIDDLEWARE ---
 interface AuthRequest extends Request {
   user?: { uid: string; email: string };
-  // cookies is usually declared by cookie-parser, but strict mode might miss it
   cookies: { [key: string]: string };
 }
 
-const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+const requireAuth = (req: any, res: any, next: NextFunction) => {
   const authReq = req as AuthRequest;
   const token = authReq.cookies?.auth_session;
   
@@ -72,7 +71,7 @@ const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
-const setAuthCookie = (res: Response, token: string) => {
+const setAuthCookie = (res: any, token: string) => {
   res.cookie('auth_session', token, {
     httpOnly: true, 
     secure: IS_PROD, 
@@ -85,7 +84,7 @@ const setAuthCookie = (res: Response, token: string) => {
 // --- ENDPOINTS ---
 
 // 1. Register
-app.post('/api/auth/register', authLimiter as any, async (req: Request, res: Response) => {
+app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) => {
   try {
     const validationResult = authSchema.safeParse(req.body);
     
@@ -132,7 +131,7 @@ app.post('/api/auth/register', authLimiter as any, async (req: Request, res: Res
 });
 
 // 2. Login
-app.post('/api/auth/login', authLimiter as any, async (req: Request, res: Response) => {
+app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
   try {
     const validationResult = authSchema.safeParse(req.body);
     
@@ -177,7 +176,7 @@ app.post('/api/auth/login', authLimiter as any, async (req: Request, res: Respon
 });
 
 // 3. Logout
-app.post('/api/auth/logout', (req: Request, res: Response) => {
+app.post('/api/auth/logout', (req: any, res: any) => {
   res.clearCookie('auth_session', {
     httpOnly: true,
     secure: IS_PROD,
@@ -188,7 +187,7 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
 });
 
 // 4. Me (Check Session)
-app.get('/api/auth/me', requireAuth as any, async (req: Request, res: Response) => {
+app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   // If middleware passes, token is valid
   const authReq = req as AuthRequest;
   return res.status(200).json({ 
