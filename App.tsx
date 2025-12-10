@@ -53,8 +53,11 @@ function App() {
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
 
-  // Refs for debouncing
+  // Refs for debouncing and syncing
   const settingsSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dataSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Flag to prevent the initial load from server from triggering a "save back to server" immediately
+  const isRemoteUpdate = useRef(false);
 
   // --- Initialization & Storage ---
   useEffect(() => {
@@ -68,14 +71,18 @@ function App() {
             setIsLoggedIn(true);
             setUserEmail(data.user?.email || 'User');
             
-            // Apply Remote Settings if they exist
+            // Apply Remote Settings
             if (data.user?.settings) {
                applySettings(data.user.settings);
+            }
+            
+            // Apply Remote Data
+            if (data.user?.data) {
+               applyRemoteData(data.user.data);
             }
           }
         }
       } catch (error) {
-        // Backend might not be running in dev or offline
         console.debug('Auth check failed (backend might be offline)');
       }
     };
@@ -88,53 +95,37 @@ function App() {
       if (found) setTheme(found);
     }
 
-    // 3. Load Data (Tasks)
+    // 3. Load Local Data (Tasks) as fallback/initial
     const savedData = localStorage.getItem(STORAGE_KEY);
     if (savedData) {
       const parsed: AppState = JSON.parse(savedData);
-      
-      // Daily Reset Logic
-      const today = getToday();
-      const updatedTasks = parsed.tasks.map(t => {
-        if (t.isCompleted && t.lastCompletedDate !== today) {
-          return { ...t, isCompleted: false, lastCompletedDate: null };
-        }
-        return t;
-      });
-
-      setTasks(updatedTasks);
-      setHistory(parsed.history);
+      applyResetLogic(parsed.tasks, parsed.history);
     } else {
       setTasks(INITIAL_STATE.tasks);
       setHistory(INITIAL_STATE.history);
     }
   }, []);
 
-  // Save Task Data on Change
-  useEffect(() => {
-    const data: AppState = { tasks, history };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [tasks, history]);
+  // --- Data Logic Helpers ---
+  
+  const applyResetLogic = (loadedTasks: Task[], loadedHistory: DailyStat[]) => {
+      const today = getToday();
+      const updatedTasks = loadedTasks.map(t => {
+        if (t.isCompleted && t.lastCompletedDate !== today) {
+          return { ...t, isCompleted: false, lastCompletedDate: null };
+        }
+        return t;
+      });
+      setTasks(updatedTasks);
+      setHistory(loadedHistory);
+  };
 
-  // Save Settings (Local + Cloud)
-  useEffect(() => {
-    // 1. Always save to LocalStorage
-    localStorage.setItem(THEME_KEY, theme.id);
-    localStorage.setItem('groovetask_sound', JSON.stringify(soundEnabled));
-
-    // 2. If Logged In, Sync with Backend (Debounced)
-    if (isLoggedIn) {
-      if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
-      
-      settingsSaveTimeoutRef.current = setTimeout(() => {
-        fetch('/api/user/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ themeId: theme.id, soundEnabled })
-        }).catch(err => console.error("Failed to sync settings:", err));
-      }, 2000); // 2 second debounce
-    }
-  }, [theme, soundEnabled, isLoggedIn]);
+  const applyRemoteData = (data: { tasks: Task[], history: DailyStat[] }) => {
+     if (data && (data.tasks.length > 0 || data.history.length > 0)) {
+         isRemoteUpdate.current = true;
+         applyResetLogic(data.tasks, data.history);
+     }
+  };
 
   const applySettings = (settings: any) => {
      if (settings.themeId) {
@@ -146,7 +137,55 @@ function App() {
      }
   };
 
-  // --- Logic ---
+  const syncDataToServer = (currentTasks: Task[], currentHistory: DailyStat[]) => {
+      fetch('/api/user/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks: currentTasks, history: currentHistory })
+      }).catch(err => console.error("Failed to sync data:", err));
+  };
+
+  // --- Effects for Saving ---
+
+  // Save Task Data (Local + Cloud)
+  useEffect(() => {
+    // 1. Always save to LocalStorage
+    const data: AppState = { tasks, history };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+
+    // 2. If Logged In, Sync with Backend (Debounced)
+    if (isLoggedIn) {
+       // Check if this update came from the server (to avoid loops)
+       if (isRemoteUpdate.current) {
+          isRemoteUpdate.current = false;
+          return;
+       }
+
+       if (dataSaveTimeoutRef.current) clearTimeout(dataSaveTimeoutRef.current);
+       dataSaveTimeoutRef.current = setTimeout(() => {
+          syncDataToServer(tasks, history);
+       }, 2000); 
+    }
+  }, [tasks, history, isLoggedIn]);
+
+  // Save Settings (Local + Cloud)
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, theme.id);
+    localStorage.setItem('groovetask_sound', JSON.stringify(soundEnabled));
+
+    if (isLoggedIn) {
+      if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
+      settingsSaveTimeoutRef.current = setTimeout(() => {
+        fetch('/api/user/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ themeId: theme.id, soundEnabled })
+        }).catch(err => console.error("Failed to sync settings:", err));
+      }, 2000);
+    }
+  }, [theme, soundEnabled, isLoggedIn]);
+
+  // --- Event Handlers ---
 
   const handleCreateTask = () => {
     if (!formTitle.trim()) return;
@@ -217,13 +256,6 @@ function App() {
       return newTasks;
     });
 
-    // Update History logic (Simple: Update today's entry)
-    setHistory(prev => {
-      const newHistory = [...prev];
-      const todayIndex = newHistory.findIndex(h => h.date === today);
-      return newHistory;
-    });
-
     if (justFinishedAll) {
       setTimeout(() => {
         if (soundEnabled) playSound('complete');
@@ -258,6 +290,17 @@ function App() {
         applySettings(user.settings);
     }
     
+    // On login, if server has data, use it.
+    // If server is empty but we have local data, we keep local data and the effect will sync it up.
+    if (user.data && (user.data.tasks.length > 0 || user.data.history.length > 0)) {
+        applyRemoteData(user.data);
+    } else {
+        // Force sync local to server if server is empty
+        if (tasks.length > 0) {
+            syncDataToServer(tasks, history);
+        }
+    }
+    
     if (soundEnabled) playSound('complete');
   };
 
@@ -266,6 +309,11 @@ function App() {
       await fetch('/api/auth/logout', { method: 'POST' });
       setIsLoggedIn(false);
       setUserEmail(null);
+      
+      // Optional: Clear local data on logout? 
+      // For now, keeping it is safer for UX unless explicit clear requested.
+      // But we will stop syncing.
+      
       if (soundEnabled) playSound('click');
     } catch (e) {
       console.error("Logout failed", e);

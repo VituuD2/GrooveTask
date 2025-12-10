@@ -14,6 +14,22 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || 'AR5oAAImcDFiZGQ3YjIwZDg3ODI0OTdiOGIyYTBhY2FhZTQ5YjRlM3AxNzc4NA',
 });
 
+// --- TYPES ---
+interface Task {
+  id: string;
+  title: string;
+  description: string;
+  isCompleted: boolean;
+  lastCompletedDate: string | null;
+  createdAt: number;
+}
+
+interface DailyStat {
+  date: string;
+  completedCount: number;
+  totalTasksAtEnd: number;
+}
+
 interface User {
   id: string;
   email: string;
@@ -22,6 +38,10 @@ interface User {
   settings?: {
     themeId: string;
     soundEnabled: boolean;
+  };
+  data?: {
+    tasks: Task[];
+    history: DailyStat[];
   };
 }
 
@@ -35,7 +55,7 @@ app.set('trust proxy', 1);
 
 // Middleware
 app.use(helmet() as any);
-app.use(express.json() as any);
+app.use(express.json({ limit: '10mb' }) as any); // Increased limit for data sync
 app.use(cookieParser() as any);
 
 // Rate Limiting
@@ -116,6 +136,10 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
       settings: {
         themeId: 'neon-blue',
         soundEnabled: true
+      },
+      data: {
+        tasks: [],
+        history: []
       }
     };
 
@@ -134,7 +158,11 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
     return res.status(201).json({ 
       success: true, 
       message: 'Account created', 
-      user: { email: newUser.email, settings: newUser.settings } 
+      user: { 
+        email: newUser.email, 
+        settings: newUser.settings,
+        data: newUser.data 
+      } 
     });
 
   } catch (error) {
@@ -183,7 +211,11 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
     return res.status(200).json({ 
       success: true, 
       message: 'Logged in successfully', 
-      user: { email: user.email, settings: user.settings } 
+      user: { 
+        email: user.email, 
+        settings: user.settings,
+        data: user.data || { tasks: [], history: [] }
+      } 
     });
 
   } catch (error) {
@@ -203,12 +235,12 @@ app.post('/api/auth/logout', (req: any, res: any) => {
   return res.status(200).json({ message: 'Logged out' });
 });
 
-// 4. Me (Check Session & Get Settings)
+// 4. Me (Check Session & Get Full Data)
 app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
   if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  // Fetch full user data to get settings
+  // Fetch full user data to get settings and data
   const userKey = `user:${authReq.user.email.toLowerCase()}`;
   const user = await redis.get<User>(userKey);
 
@@ -218,7 +250,8 @@ app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
     isAuthenticated: true, 
     user: { 
       email: user.email,
-      settings: user.settings
+      settings: user.settings,
+      data: user.data || { tasks: [], history: [] }
     } 
   });
 });
@@ -240,6 +273,29 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
   await redis.set(userKey, user);
 
   return res.status(200).json({ success: true, settings: user.settings });
+});
+
+// 6. Sync User Data (Tasks & History)
+app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
+  const authReq = req as AuthRequest;
+  if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { tasks, history } = req.body;
+
+  if (!Array.isArray(tasks) || !Array.isArray(history)) {
+     return res.status(400).json({ error: 'Invalid data format' });
+  }
+
+  const userKey = `user:${authReq.user.email.toLowerCase()}`;
+  const user = await redis.get<User>(userKey);
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  // Update data
+  user.data = { tasks, history };
+  await redis.set(userKey, user);
+
+  return res.status(200).json({ success: true });
 });
 
 export default app;
