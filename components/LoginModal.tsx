@@ -4,7 +4,7 @@ import { Lock, Mail, Loader2, X, AlertCircle, UserPlus, LogIn } from 'lucide-rea
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess: (email: string) => void;
+  onLoginSuccess: (user: any) => void;
   themeColor: string;
 }
 
@@ -39,7 +39,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
         body: JSON.stringify({ email, password }),
       });
 
-      // Handle non-JSON responses (e.g., 500 server crashes)
+      // Handle non-JSON responses
       const contentType = res.headers.get("content-type");
       let data;
       if (contentType && contentType.indexOf("application/json") !== -1) {
@@ -54,7 +54,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
       }
 
       // Success
-      onLoginSuccess(data.user?.email || email);
+      onLoginSuccess(data.user);
       onClose();
       // Reset form after close
       setTimeout(() => {

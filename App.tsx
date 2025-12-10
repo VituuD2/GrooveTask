@@ -24,7 +24,12 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [history, setHistory] = useState<DailyStat[]>([]);
   const [theme, setTheme] = useState<ThemeColor>(THEME_COLORS[0]);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  // Initialize sound from local storage
+  const [soundEnabled, setSoundEnabled] = useState(() => {
+    const saved = localStorage.getItem('groovetask_sound');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
   
   // Auth State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -48,6 +53,9 @@ function App() {
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
 
+  // Refs for debouncing
+  const settingsSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // --- Initialization & Storage ---
   useEffect(() => {
     // 1. Check Auth Session
@@ -59,6 +67,11 @@ function App() {
           if (data.isAuthenticated) {
             setIsLoggedIn(true);
             setUserEmail(data.user?.email || 'User');
+            
+            // Apply Remote Settings if they exist
+            if (data.user?.settings) {
+               applySettings(data.user.settings);
+            }
           }
         }
       } catch (error) {
@@ -68,14 +81,14 @@ function App() {
     };
     checkAuth();
 
-    // 2. Load Theme
+    // 2. Load Local Theme
     const savedThemeId = localStorage.getItem(THEME_KEY);
     if (savedThemeId) {
       const found = THEME_COLORS.find(t => t.id === savedThemeId);
       if (found) setTheme(found);
     }
 
-    // 3. Load Data
+    // 3. Load Data (Tasks)
     const savedData = localStorage.getItem(STORAGE_KEY);
     if (savedData) {
       const parsed: AppState = JSON.parse(savedData);
@@ -97,16 +110,41 @@ function App() {
     }
   }, []);
 
-  // Save on Change
+  // Save Task Data on Change
   useEffect(() => {
     const data: AppState = { tasks, history };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [tasks, history]);
 
-  // Save Theme
+  // Save Settings (Local + Cloud)
   useEffect(() => {
+    // 1. Always save to LocalStorage
     localStorage.setItem(THEME_KEY, theme.id);
-  }, [theme]);
+    localStorage.setItem('groovetask_sound', JSON.stringify(soundEnabled));
+
+    // 2. If Logged In, Sync with Backend (Debounced)
+    if (isLoggedIn) {
+      if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
+      
+      settingsSaveTimeoutRef.current = setTimeout(() => {
+        fetch('/api/user/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ themeId: theme.id, soundEnabled })
+        }).catch(err => console.error("Failed to sync settings:", err));
+      }, 2000); // 2 second debounce
+    }
+  }, [theme, soundEnabled, isLoggedIn]);
+
+  const applySettings = (settings: any) => {
+     if (settings.themeId) {
+         const foundTheme = THEME_COLORS.find(t => t.id === settings.themeId);
+         if (foundTheme) setTheme(foundTheme);
+     }
+     if (typeof settings.soundEnabled === 'boolean') {
+         setSoundEnabled(settings.soundEnabled);
+     }
+  };
 
   // --- Logic ---
 
@@ -212,9 +250,14 @@ function App() {
   }, [tasks]);
 
   // Auth Handlers
-  const handleLoginSuccess = (email: string) => {
+  const handleLoginSuccess = (user: any) => {
     setIsLoggedIn(true);
-    setUserEmail(email);
+    setUserEmail(user.email || 'User');
+    
+    if (user.settings) {
+        applySettings(user.settings);
+    }
+    
     if (soundEnabled) playSound('complete');
   };
 

@@ -19,6 +19,10 @@ interface User {
   email: string;
   passwordHash: string;
   createdAt: number;
+  settings?: {
+    themeId: string;
+    soundEnabled: boolean;
+  };
 }
 
 // --- CONFIGURATION ---
@@ -37,7 +41,7 @@ app.use(cookieParser() as any);
 // Rate Limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 20, // Increased limit to prevent false positives during testing
+  max: 20, 
   message: { error: 'Too many attempts, please try again later.' },
   standardHeaders: true, 
   legacyHeaders: false, 
@@ -108,7 +112,11 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
       id: uuidv4(),
       email: email.toLowerCase(),
       passwordHash,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      settings: {
+        themeId: 'neon-blue',
+        soundEnabled: true
+      }
     };
 
     // Save to Redis
@@ -123,7 +131,11 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
 
     setAuthCookie(res, token);
 
-    return res.status(201).json({ success: true, message: 'Account created', user: { email: newUser.email } });
+    return res.status(201).json({ 
+      success: true, 
+      message: 'Account created', 
+      user: { email: newUser.email, settings: newUser.settings } 
+    });
 
   } catch (error) {
     console.error('Register error:', error);
@@ -168,7 +180,11 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
 
     setAuthCookie(res, token);
 
-    return res.status(200).json({ success: true, message: 'Logged in successfully', user: { email: user.email } });
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Logged in successfully', 
+      user: { email: user.email, settings: user.settings } 
+    });
 
   } catch (error) {
     console.error('Login error:', error);
@@ -187,14 +203,43 @@ app.post('/api/auth/logout', (req: any, res: any) => {
   return res.status(200).json({ message: 'Logged out' });
 });
 
-// 4. Me (Check Session)
+// 4. Me (Check Session & Get Settings)
 app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
+  if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
+
+  // Fetch full user data to get settings
+  const userKey = `user:${authReq.user.email.toLowerCase()}`;
+  const user = await redis.get<User>(userKey);
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
   return res.status(200).json({ 
     isAuthenticated: true, 
-    user: { email: authReq.user?.email } 
+    user: { 
+      email: user.email,
+      settings: user.settings
+    } 
   });
 });
 
-// Default Handler for Vercel
+// 5. Update Settings
+app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) => {
+  const authReq = req as AuthRequest;
+  if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { themeId, soundEnabled } = req.body;
+
+  const userKey = `user:${authReq.user.email.toLowerCase()}`;
+  const user = await redis.get<User>(userKey);
+
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  // Update settings
+  user.settings = { themeId, soundEnabled };
+  await redis.set(userKey, user);
+
+  return res.status(200).json({ success: true, settings: user.settings });
+});
+
 export default app;
