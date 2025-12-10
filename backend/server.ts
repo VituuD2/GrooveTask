@@ -196,10 +196,4 @@ app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   });
 });
 
-if (require.main === module) {
-  app.listen(3001, () => {
-    console.log('Auth server running on port 3001');
-  });
-}
-
 export default app;
