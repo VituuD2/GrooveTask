@@ -39,7 +39,15 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      // Handle non-JSON responses (e.g., 500 server crashes)
+      const contentType = res.headers.get("content-type");
+      let data;
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(res.status === 500 ? "Server error. Please try again later." : text || "Unknown error occurred");
+      }
 
       if (!res.ok) {
         throw new Error(data.error || 'Authentication failed');
@@ -57,6 +65,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
       }, 300);
       
     } catch (err: any) {
+      console.error("Auth error:", err);
       setError(err.message);
     } finally {
       setIsLoading(false);
