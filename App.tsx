@@ -106,6 +106,29 @@ function App() {
     }
   }, []);
 
+  // Ensure tasks are reset if the app is left open overnight
+  useEffect(() => {
+    const handleFocus = () => {
+      const today = getToday();
+      setTasks(currentTasks => {
+        // Check if any task is completed but has an old date
+        const needsReset = currentTasks.some(t => t.isCompleted && t.lastCompletedDate !== today);
+        if (needsReset) {
+          return currentTasks.map(t => {
+            if (t.isCompleted && t.lastCompletedDate !== today) {
+              return { ...t, isCompleted: false, lastCompletedDate: null };
+            }
+            return t;
+          });
+        }
+        return currentTasks;
+      });
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
   // --- Data Logic Helpers ---
   
   const applyResetLogic = (loadedTasks: Task[], loadedHistory: DailyStat[]) => {
