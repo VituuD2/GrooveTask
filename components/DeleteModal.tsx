@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface DeleteModalProps {
   isOpen: boolean;
@@ -9,6 +10,8 @@ interface DeleteModalProps {
 }
 
 const DeleteModal: React.FC<DeleteModalProps> = ({ isOpen, onClose, onConfirm, taskTitle }) => {
+  const { t } = useLanguage();
+
   if (!isOpen) return null;
 
   return (
@@ -25,11 +28,11 @@ const DeleteModal: React.FC<DeleteModalProps> = ({ isOpen, onClose, onConfirm, t
             <AlertTriangle size={32} strokeWidth={1.5} />
           </div>
           <div className="space-y-1">
-            <h3 className="text-xl font-bold text-white">Delete Track?</h3>
+            <h3 className="text-xl font-bold text-white">{t.deleteTrackTitle}</h3>
             <p className="text-zinc-400 text-sm leading-relaxed">
-              Are you sure you want to remove <span className="text-white font-medium">{taskTitle ? `"${taskTitle}"` : 'this track'}</span> from your mix?
+              {t.deleteConfirm} <span className="text-white font-medium">{taskTitle ? `"${taskTitle}"` : ''}</span>?
               <br />
-              <span className="text-red-400/80 text-xs">This action cannot be undone.</span>
+              <span className="text-red-400/80 text-xs">{t.actionUndone}</span>
             </p>
           </div>
           <div className="flex gap-3 w-full mt-4">
@@ -37,13 +40,13 @@ const DeleteModal: React.FC<DeleteModalProps> = ({ isOpen, onClose, onConfirm, t
               onClick={onClose}
               className="flex-1 py-3 rounded-xl font-medium text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
             >
-              Cancel
+              {t.cancel}
             </button>
             <button 
               onClick={onConfirm}
               className="flex-1 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-500 transition-colors shadow-lg shadow-red-900/20 border border-red-500/50"
             >
-              Delete
+              {t.delete}
             </button>
           </div>
         </div>

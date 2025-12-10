@@ -38,6 +38,7 @@ interface User {
   settings?: {
     themeId: string;
     soundEnabled: boolean;
+    language?: string;
   };
   data?: {
     tasks: Task[];
@@ -71,6 +72,7 @@ const authLimiter = rateLimit({
 const authSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
+  language: z.string().optional(),
 });
 
 // --- MIDDLEWARE HELPERS ---
@@ -117,7 +119,7 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
       return res.status(400).json({ error: 'Invalid input format' });
     }
 
-    const { email, password } = validationResult.data;
+    const { email, password, language } = validationResult.data;
     const userKey = `user:${email.toLowerCase()}`;
 
     // Check if user exists
@@ -135,7 +137,8 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
       createdAt: Date.now(),
       settings: {
         themeId: 'neon-blue',
-        soundEnabled: true
+        soundEnabled: true,
+        language: language || 'en'
       },
       data: {
         tasks: [],
@@ -261,7 +264,7 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
   const authReq = req as AuthRequest;
   if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const { themeId, soundEnabled } = req.body;
+  const { themeId, soundEnabled, language } = req.body;
 
   const userKey = `user:${authReq.user.email.toLowerCase()}`;
   const user = await redis.get<User>(userKey);
@@ -269,7 +272,11 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   // Update settings
-  user.settings = { themeId, soundEnabled };
+  user.settings = { 
+    themeId: themeId || user.settings?.themeId || 'neon-blue', 
+    soundEnabled: soundEnabled ?? user.settings?.soundEnabled ?? true,
+    language: language || user.settings?.language || 'en'
+  };
   await redis.set(userKey, user);
 
   return res.status(200).json({ success: true, settings: user.settings });

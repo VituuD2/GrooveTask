@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 import { Task, AppState, DailyStat, ThemeColor } from './types';
 import { THEME_COLORS, STORAGE_KEY, THEME_KEY } from './constants';
 import { playSound } from './services/audio';
+import { useLanguage } from './contexts/LanguageContext';
+import { LANGUAGE_NAMES, LanguageCode } from './translations';
 
 import PadItem from './components/PadItem';
 import StatsPanel from './components/StatsPanel';
@@ -20,6 +22,8 @@ const INITIAL_STATE: AppState = {
 };
 
 function App() {
+  const { t, language, setLanguage } = useLanguage();
+
   // --- State ---
   const [tasks, setTasks] = useState<Task[]>([]);
   const [history, setHistory] = useState<DailyStat[]>([]);
@@ -40,7 +44,7 @@ function App() {
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showCongrats, setShowCongrats] = useState(false);
-  const [showThemePicker, setShowThemePicker] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -56,7 +60,6 @@ function App() {
   // Refs for debouncing and syncing
   const settingsSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const dataSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  // Flag to prevent the initial load from server from triggering a "save back to server" immediately
   const isRemoteUpdate = useRef(false);
 
   // --- Initialization & Storage ---
@@ -71,12 +74,9 @@ function App() {
             setIsLoggedIn(true);
             setUserEmail(data.user?.email || 'User');
             
-            // Apply Remote Settings
             if (data.user?.settings) {
                applySettings(data.user.settings);
             }
-            
-            // Apply Remote Data
             if (data.user?.data) {
                applyRemoteData(data.user.data);
             }
@@ -135,6 +135,9 @@ function App() {
      if (typeof settings.soundEnabled === 'boolean') {
          setSoundEnabled(settings.soundEnabled);
      }
+     if (settings.language) {
+         setLanguage(settings.language as LanguageCode);
+     }
   };
 
   const syncDataToServer = (currentTasks: Task[], currentHistory: DailyStat[]) => {
@@ -149,13 +152,10 @@ function App() {
 
   // Save Task Data (Local + Cloud)
   useEffect(() => {
-    // 1. Always save to LocalStorage
     const data: AppState = { tasks, history };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 
-    // 2. If Logged In, Sync with Backend (Debounced)
     if (isLoggedIn) {
-       // Check if this update came from the server (to avoid loops)
        if (isRemoteUpdate.current) {
           isRemoteUpdate.current = false;
           return;
@@ -179,11 +179,11 @@ function App() {
         fetch('/api/user/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ themeId: theme.id, soundEnabled })
+          body: JSON.stringify({ themeId: theme.id, soundEnabled, language })
         }).catch(err => console.error("Failed to sync settings:", err));
       }, 2000);
     }
-  }, [theme, soundEnabled, isLoggedIn]);
+  }, [theme, soundEnabled, language, isLoggedIn]);
 
   // --- Event Handlers ---
 
@@ -290,12 +290,9 @@ function App() {
         applySettings(user.settings);
     }
     
-    // On login, if server has data, use it.
-    // If server is empty but we have local data, we keep local data and the effect will sync it up.
     if (user.data && (user.data.tasks.length > 0 || user.data.history.length > 0)) {
         applyRemoteData(user.data);
     } else {
-        // Force sync local to server if server is empty
         if (tasks.length > 0) {
             syncDataToServer(tasks, history);
         }
@@ -309,11 +306,6 @@ function App() {
       await fetch('/api/auth/logout', { method: 'POST' });
       setIsLoggedIn(false);
       setUserEmail(null);
-      
-      // Optional: Clear local data on logout? 
-      // For now, keeping it is safer for UX unless explicit clear requested.
-      // But we will stop syncing.
-      
       if (soundEnabled) playSound('click');
     } catch (e) {
       console.error("Logout failed", e);
@@ -353,26 +345,23 @@ function App() {
 
   // Stats Calculations
   const completedToday = tasks.filter(t => t.isCompleted).length;
-  // Naive streak calculation
   const calculateStreak = () => {
     let streak = 0;
     const sortedHistory = [...history].sort((a, b) => b.date.localeCompare(a.date)); // Newest first
     const today = getToday();
     
-    // Check today first
     const todayStat = sortedHistory.find(h => h.date === today);
     if (todayStat && todayStat.completedCount > 0) {
       streak++;
     }
 
-    // Check previous days
     let checkDate = new Date();
     checkDate.setDate(checkDate.getDate() - 1);
     
     for (let i = 0; i < sortedHistory.length; i++) {
         const dateStr = checkDate.toISOString().split('T')[0];
         const stat = sortedHistory.find(h => h.date === dateStr);
-        if (stat && stat.completedCount >= 1) { // Simplistic streak: at least 1 task done
+        if (stat && stat.completedCount >= 1) { 
             streak++;
             checkDate.setDate(checkDate.getDate() - 1);
         } else if (stat) {
@@ -387,12 +376,11 @@ function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
       
-      {/* Sidebar (Desktop: Hover to expand, Mobile: Toggle) */}
+      {/* Sidebar */}
       <div 
         className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out ${isStatsOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static md:w-16 hover:md:w-80 group shadow-2xl`}
       >
         <div className="h-full w-full bg-zinc-900 border-r border-zinc-800 md:w-16 md:group-hover:w-80 transition-all duration-300 overflow-hidden relative">
-           {/* Sidebar visible content (icon strip) */}
            <div className="absolute left-0 top-0 w-16 h-full flex flex-col items-center py-6 gap-8 z-10 bg-zinc-900 md:bg-transparent pointer-events-none md:pointer-events-auto">
               <button onClick={() => setIsStatsOpen(!isStatsOpen)} className="md:hidden p-2 bg-zinc-800 rounded-lg pointer-events-auto">
                 <X size={20} />
@@ -401,17 +389,16 @@ function App() {
                  <Menu size={24} className="text-zinc-500 group-hover:text-white transition-colors" />
               </div>
               
-              {/* Login Icon in Sidebar Strip */}
               <button 
                 onClick={() => isLoggedIn ? handleLogout() : setShowLoginModal(true)}
                 className={`hidden md:flex p-2 rounded-full transition-colors pointer-events-auto ${isLoggedIn ? 'text-green-500 bg-green-500/10' : 'text-zinc-500 hover:text-white'}`}
-                title={isLoggedIn ? "Log Out" : "Log In"}
+                title={isLoggedIn ? t.logout : t.logIn}
               >
                  {isLoggedIn ? <User size={24} /> : <User size={24} />}
               </button>
 
               <div className="mt-auto flex flex-col gap-4 mb-4 pointer-events-auto">
-                 <button onClick={() => setShowThemePicker(!showThemePicker)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+                 <button onClick={() => setShowSettingsModal(!showSettingsModal)} className="p-2 text-zinc-500 hover:text-white transition-colors">
                     <Settings size={24} />
                  </button>
                  <button onClick={() => setSoundEnabled(!soundEnabled)} className="p-2 text-zinc-500 hover:text-white transition-colors">
@@ -423,7 +410,6 @@ function App() {
            {/* Expanded Content */}
            <div className="w-80 h-full pl-16 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-300 delay-75 flex flex-col">
              
-             {/* Auth Section in Expanded Sidebar */}
              <div className="p-6 pb-2 border-b border-zinc-800/50">
                 {isLoggedIn ? (
                   <div className="flex items-center justify-between bg-zinc-800/50 p-3 rounded-xl border border-zinc-700/50">
@@ -432,14 +418,14 @@ function App() {
                         {userEmail ? userEmail[0].toUpperCase() : 'U'}
                       </div>
                       <div className="flex flex-col truncate">
-                        <span className="text-xs text-zinc-400">Signed in as</span>
+                        <span className="text-xs text-zinc-400">{t.signedInAs}</span>
                         <span className="text-sm font-medium text-white truncate max-w-[120px]">{userEmail}</span>
                       </div>
                     </div>
                     <button 
                       onClick={handleLogout}
                       className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors"
-                      title="Log Out"
+                      title={t.logout}
                     >
                       <LogOut size={16} />
                     </button>
@@ -450,7 +436,7 @@ function App() {
                     className="w-full py-3 rounded-xl font-bold bg-zinc-100 text-zinc-900 hover:bg-white transition-colors flex items-center justify-center gap-2"
                   >
                     <User size={18} />
-                    Login / Sync
+                    {t.loginSync}
                   </button>
                 )}
              </div>
@@ -476,7 +462,7 @@ function App() {
               <Menu size={20} />
             </button>
             <h1 className="text-2xl font-bold tracking-tighter">
-              GROOVE<span style={{ color: theme.hex }}>TASK</span>
+              GROOVE<span style={{ color: theme.hex }}>{t.appName}</span>
             </h1>
           </div>
           <button 
@@ -484,7 +470,7 @@ function App() {
             className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-900 rounded-full font-semibold hover:bg-white hover:scale-105 transition-all shadow-lg shadow-zinc-500/10"
           >
             <Plus size={18} />
-            <span className="hidden sm:inline">Add Track</span>
+            <span className="hidden sm:inline">{t.addTrack}</span>
           </button>
         </header>
 
@@ -495,8 +481,8 @@ function App() {
               <div className="w-24 h-24 border-2 border-dashed border-zinc-800 rounded-2xl flex items-center justify-center">
                 <Plus size={32} className="opacity-50"/>
               </div>
-              <p>No tracks in your mix yet.</p>
-              <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">Create one now</button>
+              <p>{t.noTracks}</p>
+              <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">{t.createOne}</button>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
@@ -513,13 +499,12 @@ function App() {
                 />
               ))}
               
-              {/* Add Button as a Pad */}
               <button 
                 onClick={openCreateModal}
                 className="aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
               >
                 <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
-                <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">Add</span>
+                <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">{t.create}</span>
               </button>
             </div>
           )}
@@ -534,7 +519,7 @@ function App() {
               <div className="flex justify-between items-start mb-6">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                    {isViewingInfo ? <Info className="text-zinc-500"/> : null}
-                   {isViewingInfo ? 'Track Details' : (currentTask ? 'Remix Track' : 'New Track')}
+                   {isViewingInfo ? t.trackDetails : (currentTask ? t.remixTrack : t.newTrack)}
                 </h2>
                 <button onClick={closeModal} className="text-zinc-500 hover:text-white transition-colors">
                   <X size={24} />
@@ -544,11 +529,11 @@ function App() {
               {isViewingInfo ? (
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">Title</h3>
+                    <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.title}</h3>
                     <p className="text-lg text-white font-medium">{formTitle}</p>
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">Details</h3>
+                    <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.details}</h3>
                     <div className="bg-zinc-950/50 p-4 rounded-xl border border-zinc-800 min-h-[100px] text-zinc-300 whitespace-pre-wrap">
                       {formDesc || "No additional details provided."}
                     </div>
@@ -558,32 +543,32 @@ function App() {
                        onClick={() => { setIsViewingInfo(false); }}
                        className="text-sm text-zinc-400 hover:text-white underline"
                      >
-                       Edit this track
+                       {t.editTrack}
                      </button>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-1">Title</label>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">{t.title}</label>
                     <input 
                       autoFocus
                       type="text" 
                       value={formTitle}
                       onChange={(e) => setFormTitle(e.target.value)}
                       maxLength={40}
-                      placeholder="e.g. Drink Water"
+                      placeholder={t.titlePlaceholder}
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900"
                       style={{ '--tw-ring-color': theme.hex } as React.CSSProperties}
                     />
                     <p className="text-xs text-right text-zinc-600 mt-1">{formTitle.length}/40</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-1">Description (Optional)</label>
+                    <label className="block text-sm font-medium text-zinc-400 mb-1">{t.description}</label>
                     <textarea 
                       value={formDesc}
                       onChange={(e) => setFormDesc(e.target.value)}
-                      placeholder="Add more context..."
+                      placeholder={t.descPlaceholder}
                       rows={4}
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900 resize-none"
                       style={{ '--tw-ring-color': theme.hex } as React.CSSProperties}
@@ -594,7 +579,7 @@ function App() {
                       onClick={closeModal}
                       className="flex-1 py-3 rounded-xl font-medium text-zinc-400 hover:bg-zinc-800 transition-colors"
                     >
-                      Cancel
+                      {t.cancel}
                     </button>
                     <button 
                       onClick={currentTask ? handleUpdateTask : handleCreateTask}
@@ -602,7 +587,7 @@ function App() {
                       className="flex-1 py-3 rounded-xl font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{ backgroundColor: theme.hex, boxShadow: `0 4px 14px ${theme.shadow}` }}
                     >
-                      {currentTask ? 'Update' : 'Create'}
+                      {currentTask ? t.update : t.create}
                     </button>
                   </div>
                 </div>
@@ -628,23 +613,71 @@ function App() {
         themeColor={theme.hex}
       />
 
-      {/* Theme Picker Modal */}
-      {showThemePicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowThemePicker(false)}>
-           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-             <h2 className="text-xl font-bold mb-4 text-white">Studio Lighting</h2>
-             <div className="grid grid-cols-3 gap-4">
-                {THEME_COLORS.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => { setTheme(c); setShowThemePicker(false); }}
-                    className={`flex flex-col items-center gap-2 p-2 rounded-xl transition-all ${theme.id === c.id ? 'bg-zinc-800 ring-2 ring-white' : 'hover:bg-zinc-800'}`}
-                  >
-                    <div className="w-10 h-10 rounded-full shadow-lg" style={{ backgroundColor: c.hex, boxShadow: `0 0 10px ${c.shadow}` }} />
-                    <span className="text-xs font-medium text-zinc-400">{c.name}</span>
-                  </button>
-                ))}
+      {/* Studio Settings Modal (Replaces Theme Picker) */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowSettingsModal(false)}>
+           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl w-full max-w-sm overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
+             <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-white">{t.studioSettings}</h2>
+                <button onClick={() => setShowSettingsModal(false)} className="text-zinc-500 hover:text-white">
+                  <X size={20} />
+                </button>
              </div>
+
+             {/* Language Section */}
+             <div className="mb-8">
+               <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                 <Globe size={14} /> {t.language}
+               </h3>
+               <div className="space-y-2">
+                 {(Object.keys(LANGUAGE_NAMES) as LanguageCode[]).map((code) => (
+                   <button
+                     key={code}
+                     onClick={() => setLanguage(code)}
+                     className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${language === code ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-800/50 border border-transparent'}`}
+                   >
+                     <span className="text-sm text-zinc-300">{LANGUAGE_NAMES[code]}</span>
+                     {language === code && <Check size={16} style={{ color: theme.hex }} />}
+                   </button>
+                 ))}
+               </div>
+             </div>
+
+             {/* Lighting Section */}
+             <div className="mb-8">
+                <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Settings size={14} /> {t.lighting}
+                </h3>
+                <div className="grid grid-cols-3 gap-3">
+                    {THEME_COLORS.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => setTheme(c)}
+                        className={`flex flex-col items-center gap-2 p-3 rounded-xl transition-all border ${theme.id === c.id ? 'bg-zinc-800 border-zinc-600' : 'border-zinc-800 hover:bg-zinc-800'}`}
+                      >
+                        <div className="w-8 h-8 rounded-full shadow-lg" style={{ backgroundColor: c.hex, boxShadow: `0 0 10px ${c.shadow}` }} />
+                        <span className="text-[10px] font-medium text-zinc-400">{c.name}</span>
+                      </button>
+                    ))}
+                </div>
+             </div>
+
+             {/* Sound Section */}
+             <div>
+                <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                   <Volume2 size={14} /> {t.soundEffects}
+                </h3>
+                <button 
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${soundEnabled ? 'bg-zinc-800 border-zinc-600' : 'bg-zinc-950 border-zinc-800'}`}
+                >
+                  <span className="text-sm text-zinc-300">{soundEnabled ? 'On' : 'Off'}</span>
+                  <div className={`w-10 h-6 rounded-full relative transition-colors ${soundEnabled ? 'bg-green-500/20' : 'bg-zinc-700'}`}>
+                     <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${soundEnabled ? 'left-5 bg-green-500' : 'left-1'}`} />
+                  </div>
+                </button>
+             </div>
+
            </div>
         </div>
       )}
@@ -661,15 +694,15 @@ function App() {
                 <Volume2 size={40} style={{ color: theme.hex }} className="animate-pulse" />
               </div>
               <div>
-                <h2 className="text-3xl font-bold text-white mb-2">Mix Complete!</h2>
-                <p className="text-zinc-400">You've cleared the deck for today. Excellent rhythm.</p>
+                <h2 className="text-3xl font-bold text-white mb-2">{t.mixComplete}</h2>
+                <p className="text-zinc-400">{t.clearedDeck}</p>
               </div>
               <button 
                 onClick={() => setShowCongrats(false)}
                 className="w-full py-3 rounded-xl font-bold text-zinc-900 transition-transform hover:scale-105"
                 style={{ backgroundColor: theme.hex }}
               >
-                Keep Groovin'
+                {t.keepGroovin}
               </button>
             </div>
           </div>

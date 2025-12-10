@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MoreVertical, Info, Check, Play, X } from 'lucide-react';
 import { Task } from '../types';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface PadItemProps {
   task: Task;
@@ -21,6 +22,7 @@ const PadItem: React.FC<PadItemProps> = ({
   onDelete,
   onViewInfo
 }) => {
+  const { t } = useLanguage();
   const [showMenu, setShowMenu] = useState(false);
 
   const handleToggle = () => {
@@ -43,7 +45,6 @@ const PadItem: React.FC<PadItemProps> = ({
         boxShadow: task.isCompleted ? `0 0 20px ${themeShadow}` : 'none'
       }}
       onClick={(e) => {
-        // Prevent toggling if clicking menu or actions
         if ((e.target as HTMLElement).closest('.action-btn')) return;
         if ((e.target as HTMLElement).closest('.menu-container')) return;
         handleToggle();
@@ -64,19 +65,19 @@ const PadItem: React.FC<PadItemProps> = ({
             onViewInfo(task);
           }}
           className="action-btn p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-full transition-colors"
-          title="View Details"
+          title={t.viewDetails}
         >
           <Info size={16} />
         </button>
         
-        {/* Delete Button (New Position) */}
+        {/* Delete Button */}
         <button 
           onClick={(e) => {
-            e.stopPropagation(); // Prevent card toggle
+            e.stopPropagation(); 
             onDelete(task.id);
           }}
           className="action-btn p-1.5 text-zinc-400 hover:bg-red-500/20 hover:text-red-500 rounded-full transition-colors"
-          title="Delete Track"
+          title={t.delete}
         >
           <X size={16} />
         </button>
@@ -106,14 +107,13 @@ const PadItem: React.FC<PadItemProps> = ({
                   onEdit(task); 
                 }}
               >
-                Edit
+                {t.edit}
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Overlay backdrop for click menu to close it (Scoped to card due to transform) */}
       {showMenu && (
         <div 
           className="fixed inset-0 z-0 cursor-default" 

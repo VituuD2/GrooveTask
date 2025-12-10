@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Lock, Mail, Loader2, X, AlertCircle, UserPlus, LogIn } from 'lucide-react';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface LoginModalProps {
 }
 
 const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess, themeColor }) => {
+  const { t, language } = useLanguage();
   const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -25,7 +27,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
 
     // Basic Validation
     if (isRegistering && password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(t.passwordsMismatch);
       setIsLoading(false);
       return;
     }
@@ -33,10 +35,14 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
     try {
       const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login';
       
+      const payload = isRegistering 
+        ? { email, password, language } 
+        : { email, password };
+
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(payload),
       });
 
       // Handle non-JSON responses
@@ -46,7 +52,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
         data = await res.json();
       } else {
         const text = await res.text();
-        throw new Error(res.status === 500 ? "Server error. Please try again later." : text || "Unknown error occurred");
+        throw new Error(res.status === 500 ? "Server error." : text || "Unknown error");
       }
 
       if (!res.ok) {
@@ -94,12 +100,12 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
               {isRegistering ? (
                 <>
                   <UserPlus size={20} style={{ color: themeColor }} />
-                  New Artist Registration
+                  {t.newArtist}
                 </>
               ) : (
                 <>
                   <Lock size={20} style={{ color: themeColor }} />
-                  Backstage Access
+                  {t.backstageAccess}
                 </>
               )}
             </h2>
@@ -117,7 +123,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Email</label>
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.email}</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3 text-zinc-600" size={18} />
                 <input 
@@ -133,7 +139,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Password</label>
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.password}</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3 text-zinc-600" size={18} />
                 <input 
@@ -151,7 +157,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
 
             {isRegistering && (
               <div className="animate-in fade-in slide-in-from-top-2 duration-200">
-                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Confirm Password</label>
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.confirmPassword}</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 text-zinc-600" size={18} />
                   <input 
@@ -178,24 +184,24 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
               {isLoading ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  {isRegistering ? 'Creating Account...' : 'Authenticating...'}
+                  {isRegistering ? t.creating : t.authenticating}
                 </>
               ) : (
                 <>
                    {isRegistering ? <UserPlus size={18}/> : <LogIn size={18}/>}
-                   {isRegistering ? 'Join the Mix' : 'Log In'}
+                   {isRegistering ? t.joinMix : t.logIn}
                 </>
               )}
             </button>
           </form>
 
           <div className="mt-6 text-center text-xs text-zinc-600">
-            {isRegistering ? 'Already have an account? ' : "Don't have an account? "}
+            {isRegistering ? t.alreadyHaveAccount : t.dontHaveAccount}
             <button 
               onClick={toggleMode}
               className="underline hover:text-zinc-400 cursor-pointer font-medium focus:outline-none"
             >
-              {isRegistering ? 'Log In' : 'Register'}
+              {isRegistering ? t.logIn : t.register}
             </button>
           </div>
         </div>

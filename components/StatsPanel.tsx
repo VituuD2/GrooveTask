@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { DailyStat } from '../types';
 import { Activity, CalendarDays, CheckCircle2 } from 'lucide-react';
+import { useLanguage } from '../contexts/LanguageContext';
 
 interface StatsPanelProps {
   history: DailyStat[];
@@ -19,6 +20,8 @@ interface StatsPanelProps {
 }
 
 const StatsPanel: React.FC<StatsPanelProps> = ({ history, currentStreak, totalCompletedToday, themeColor }) => {
+  const { t } = useLanguage();
+
   // Process data for the chart (last 7 days)
   const chartData = history.slice(-7).map(stat => ({
     name: stat.date.slice(5), // MM-DD
@@ -35,9 +38,9 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ history, currentStreak, totalCo
       <div className="space-y-2">
         <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
           <Activity size={24} style={{ color: themeColor }} />
-          Performance
+          {t.performance}
         </h2>
-        <p className="text-xs text-zinc-500">Your daily groove statistics.</p>
+        <p className="text-xs text-zinc-500">{t.dailyGroove}</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
@@ -46,9 +49,9 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ history, currentStreak, totalCo
             <div className="p-2 rounded-lg bg-zinc-900 text-zinc-400">
               <CalendarDays size={18} />
             </div>
-            <span className="text-sm font-medium text-zinc-400">Current Streak</span>
+            <span className="text-sm font-medium text-zinc-400">{t.currentStreak}</span>
           </div>
-          <p className="text-3xl font-bold text-white pl-1">{currentStreak} <span className="text-sm font-normal text-zinc-500">days</span></p>
+          <p className="text-3xl font-bold text-white pl-1">{currentStreak} <span className="text-sm font-normal text-zinc-500">{t.days}</span></p>
         </div>
 
         <div className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700/50">
@@ -56,14 +59,14 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ history, currentStreak, totalCo
             <div className="p-2 rounded-lg bg-zinc-900 text-zinc-400">
               <CheckCircle2 size={18} />
             </div>
-            <span className="text-sm font-medium text-zinc-400">Completed Today</span>
+            <span className="text-sm font-medium text-zinc-400">{t.completedToday}</span>
           </div>
-          <p className="text-3xl font-bold text-white pl-1">{totalCompletedToday} <span className="text-sm font-normal text-zinc-500">tasks</span></p>
+          <p className="text-3xl font-bold text-white pl-1">{totalCompletedToday} <span className="text-sm font-normal text-zinc-500">{t.tasks}</span></p>
         </div>
       </div>
 
       <div className="flex-grow min-h-[200px] flex flex-col">
-        <h3 className="text-sm font-semibold mb-4 text-zinc-400">Last 7 Days Activity</h3>
+        <h3 className="text-sm font-semibold mb-4 text-zinc-400">{t.last7Days}</h3>
         <div className="flex-1 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
@@ -93,7 +96,7 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ history, currentStreak, totalCo
       </div>
       
       <div className="text-xs text-zinc-600 mt-auto pt-4 border-t border-zinc-800">
-        Consistency is key to the rhythm of success.
+        {t.consistencyMsg}
       </div>
     </div>
   );
