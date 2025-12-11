@@ -15,12 +15,20 @@ const redis = new Redis({
 });
 
 // --- TYPES ---
+interface LogEntry {
+  id: string;
+  timestamp: number;
+}
+
 interface Task {
   id: string;
+  type?: 'simple' | 'counter';
   title: string;
   description: string;
   isCompleted: boolean;
   completedAt: number | null;
+  count?: number;
+  log?: LogEntry[];
   createdAt: number;
 }
 
@@ -197,13 +205,16 @@ async function getTasks(uid: string): Promise<Task[]> {
 async function saveTasks(uid: string, tasks: any[], forceEmpty: boolean = false) {
   const key = `data:tasks:${uid}`;
   
-  // Clean input tasks
+  // Clean input tasks to ensure they match schema and include new fields
   const cleanTasks = tasks.map(t => ({
      id: t.id,
+     type: t.type || 'simple', // Persist type
      title: t.title,
      description: t.description || '',
      isCompleted: t.isCompleted,
      completedAt: t.completedAt,
+     count: typeof t.count === 'number' ? t.count : 0, // Persist count
+     log: Array.isArray(t.log) ? t.log : [], // Persist log
      createdAt: t.createdAt
   }));
 

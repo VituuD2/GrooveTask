@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid, Save, Edit2, Loader2, AlertCircle } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid, Save, Edit2, Loader2, AlertCircle, Clock, Trash2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 // Fix for "does not provide an export named 'ReactSortable'" error
 import ReactSortablePkg from 'react-sortablejs';
@@ -7,7 +7,7 @@ import ReactSortablePkg from 'react-sortablejs';
 // Handle both CJS (default export with properties) and ESM (named exports or default component) scenarios
 const ReactSortable = (ReactSortablePkg as any).ReactSortable || ReactSortablePkg;
 
-import { Task, AppState, DailyStat, ThemeColor } from './types';
+import { Task, AppState, DailyStat, ThemeColor, TaskType } from './types';
 import { THEME_COLORS, STORAGE_KEY, THEME_KEY, APP_VERSION } from './constants';
 import { playSound } from './services/audio';
 import { useLanguage } from './contexts/LanguageContext';
@@ -76,6 +76,7 @@ function App() {
   // Form State
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
+  const [formType, setFormType] = useState<TaskType>('simple');
 
   // Refs for debouncing and syncing
   const tasksRef = useRef<Task[]>(tasks); // Ref to track tasks for Sortable onEnd
@@ -192,6 +193,7 @@ function App() {
       // Migration for local storage old format
       const migratedTasks = parsed.tasks.map((t: any) => ({
         ...t,
+        type: t.type || 'simple', // Ensure type exists on load
         completedAt: t.completedAt !== undefined ? t.completedAt : (t.lastCompletedDate ? new Date(t.lastCompletedDate).getTime() : null),
         lastCompletedDate: undefined // Remove old field
       }));
@@ -207,6 +209,8 @@ function App() {
       const todayStr = getToday();
       setTasks(currentTasks => {
         const needsReset = currentTasks.some(t => {
+           // Don't reset Counters automatically yet, only simple tracks that are completed
+           if (t.type === 'counter') return false; 
            if (!t.isCompleted || !t.completedAt) return false;
            const taskDate = new Date(t.completedAt).toISOString().split('T')[0];
            return taskDate !== todayStr;
@@ -214,7 +218,7 @@ function App() {
 
         if (needsReset) {
           return currentTasks.map(t => {
-            if (t.isCompleted && t.completedAt) {
+            if (t.type !== 'counter' && t.isCompleted && t.completedAt) {
                const taskDate = new Date(t.completedAt).toISOString().split('T')[0];
                if (taskDate !== todayStr) {
                   return { ...t, isCompleted: false, completedAt: null };
@@ -241,7 +245,8 @@ function App() {
   const applyResetLogic = (loadedTasks: Task[], loadedHistory: DailyStat[]) => {
       const todayStr = getToday();
       const updatedTasks = loadedTasks.map(t => {
-        if (t.isCompleted && t.completedAt) {
+        // Reset Logic for Simple Tasks
+        if (t.type !== 'counter' && t.isCompleted && t.completedAt) {
           const taskDate = new Date(t.completedAt).toISOString().split('T')[0];
           if (taskDate !== todayStr) {
              return { ...t, isCompleted: false, completedAt: null };
@@ -421,11 +426,14 @@ function App() {
 
     const newTask: Task = {
       id: uuidv4(),
+      type: formType,
       title: formTitle,
       description: formDesc,
       isCompleted: false,
       completedAt: null,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      count: formType === 'counter' ? 0 : undefined,
+      log: formType === 'counter' ? [] : undefined
     };
     
     const newTasks = [...tasks, newTask];
@@ -510,37 +518,71 @@ function App() {
     let newTasks = [...tasks];
     let newHistory = [...history];
 
-    // Calculate new state
-    newTasks = newTasks.map(t => {
-      if (t.id === id) {
-        const newState = !t.isCompleted;
-        if (newState && soundEnabled) playSound('check');
-        return {
-          ...t,
-          isCompleted: newState,
-          completedAt: newState ? Date.now() : null
-        };
-      }
-      return t;
-    });
+    // Find task first
+    const targetTask = tasks.find(t => t.id === id);
+    if (!targetTask) return;
 
-    // Check if all tasks are now completed
-    const allCompleted = newTasks.length > 0 && newTasks.every(t => t.isCompleted);
-    const wasAllCompleted = prevTasks.length > 0 && prevTasks.every(t => t.isCompleted);
-    
-    if (allCompleted && !wasAllCompleted) {
-      justFinishedAll = true;
-    }
+    if (targetTask.type === 'counter') {
+       // --- COUNTER LOGIC ---
+       // Increment count and add log entry
+       newTasks = newTasks.map(t => {
+          if (t.id === id) {
+              const currentCount = (t.count || 0) + 1;
+              const newLogEntry = { id: uuidv4(), timestamp: Date.now() };
+              const newLog = [newLogEntry, ...(t.log || [])]; // Add to top
+              
+              if (soundEnabled) playSound('check', 600); // Slightly higher pitch/different feel
+              
+              return {
+                  ...t,
+                  count: currentCount,
+                  log: newLog,
+                  completedAt: Date.now() // Mark recent activity
+              };
+          }
+          return t;
+       });
 
-    // Recalculate History (required because tasks changed)
-    const todayStr = getToday();
-    const completedCount = newTasks.filter(t => t.isCompleted).length;
-    
-    const index = newHistory.findIndex(h => h.date === todayStr);
-    if (index >= 0) {
-      newHistory[index] = { ...newHistory[index], completedCount, totalTasksAtEnd: newTasks.length };
+       // Counters also contribute to streak logic? 
+       // For now, let's treat any activity as contribution.
+       // Update history based on total items "engaged" or just keep existing "isCompleted" logic for Simple tracks.
+       // The requirement implies counters just add up.
+       // We won't modify daily stats based on count increments to keep StatsPanel simple for now, 
+       // unless "completedCount" implies tasks with > 0 activity.
+       
     } else {
-      newHistory.push({ date: todayStr, completedCount, totalTasksAtEnd: newTasks.length });
+       // --- SIMPLE TRACK LOGIC ---
+        newTasks = newTasks.map(t => {
+          if (t.id === id) {
+            const newState = !t.isCompleted;
+            if (newState && soundEnabled) playSound('check');
+            return {
+              ...t,
+              isCompleted: newState,
+              completedAt: newState ? Date.now() : null
+            };
+          }
+          return t;
+        });
+
+        // Check if all tasks are now completed
+        const allCompleted = newTasks.length > 0 && newTasks.every(t => t.isCompleted || t.type === 'counter'); // Counters don't block "all completed"
+        const wasAllCompleted = prevTasks.length > 0 && prevTasks.every(t => t.isCompleted || t.type === 'counter');
+        
+        if (allCompleted && !wasAllCompleted) {
+          justFinishedAll = true;
+        }
+
+        // Recalculate History (Only for simple tracks usually, but let's count completed ones)
+        const todayStr = getToday();
+        const completedCount = newTasks.filter(t => t.isCompleted).length;
+        
+        const index = newHistory.findIndex(h => h.date === todayStr);
+        if (index >= 0) {
+          newHistory[index] = { ...newHistory[index], completedCount, totalTasksAtEnd: newTasks.length };
+        } else {
+          newHistory.push({ date: todayStr, completedCount, totalTasksAtEnd: newTasks.length });
+        }
     }
 
     // 1. Optimistic Update
@@ -564,6 +606,46 @@ function App() {
       setHistory(prevHistory);
       addToast("Connection failed. Action reverted.", "error");
     }
+  };
+
+  const handleRemoveLogEntry = async (taskId: string, entryId: string) => {
+      const prevTasks = [...tasks];
+      const prevHistory = [...history];
+
+      let newTasks = tasks.map(t => {
+          if (t.id === taskId && t.type === 'counter' && t.log) {
+              // Remove entry
+              const newLog = t.log.filter(l => l.id !== entryId);
+              // Decrement count if log was removed
+              const countDiff = t.log.length - newLog.length;
+              const newCount = Math.max(0, (t.count || 0) - countDiff);
+              
+              // Update the current task in view if needed
+              if (currentTask && currentTask.id === taskId) {
+                  setCurrentTask({ ...t, count: newCount, log: newLog });
+              }
+
+              return { ...t, count: newCount, log: newLog };
+          }
+          return t;
+      });
+
+      setTasks(newTasks);
+      if (soundEnabled) playSound('click');
+      addToast(t.entryDeleted, "info");
+
+      try {
+          await persistData(newTasks, history);
+      } catch (error) {
+          setTasks(prevTasks);
+          setHistory(prevHistory);
+          // Revert current view
+          if (currentTask && currentTask.id === taskId) {
+             const oldTask = prevTasks.find(pt => pt.id === taskId);
+             if (oldTask) setCurrentTask(oldTask);
+          }
+          addToast("Failed to delete entry", "error");
+      }
   };
 
   // Wrapper for Sortable setList to keep ref in sync immediately
@@ -628,6 +710,7 @@ function App() {
   const openCreateModal = () => {
     setFormTitle('');
     setFormDesc('');
+    setFormType('simple'); // Default
     setCurrentTask(null);
     setIsViewingInfo(false);
     setShowTaskModal(true);
@@ -636,6 +719,7 @@ function App() {
   const openEditModal = (task: Task) => {
     setFormTitle(task.title);
     setFormDesc(task.description);
+    setFormType(task.type || 'simple');
     setCurrentTask(task);
     setIsViewingInfo(false);
     setShowTaskModal(true);
@@ -644,6 +728,7 @@ function App() {
   const openInfoModal = (task: Task) => {
     setFormTitle(task.title);
     setFormDesc(task.description);
+    setFormType(task.type || 'simple');
     setCurrentTask(task);
     setIsViewingInfo(true);
     setShowTaskModal(true);
@@ -886,8 +971,8 @@ function App() {
       {/* Task Modal (Create / Edit / Info) */}
       {showTaskModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden transform scale-100 transition-all">
-            <div className="p-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden transform scale-100 transition-all flex flex-col max-h-[90vh]">
+            <div className="p-6 flex-1 overflow-y-auto">
               <div className="flex justify-between items-start mb-6">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                    {isViewingInfo ? <Info className="text-zinc-500"/> : null}
@@ -904,6 +989,42 @@ function App() {
                     <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.title}</h3>
                     <p className="text-lg text-white font-medium">{formTitle}</p>
                   </div>
+                  
+                  {/* Log History for Counter Tracks */}
+                  {currentTask?.type === 'counter' && (
+                      <div className="bg-zinc-950/50 rounded-xl border border-zinc-800 overflow-hidden">
+                          <div className="bg-zinc-800/50 px-4 py-2 border-b border-zinc-800 flex justify-between items-center">
+                              <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{t.history}</span>
+                              <span className="text-xs font-mono text-zinc-500">Total: {currentTask.count}</span>
+                          </div>
+                          <div className="max-h-[150px] overflow-y-auto">
+                              {currentTask.log && currentTask.log.length > 0 ? (
+                                  <ul className="divide-y divide-zinc-800/50">
+                                      {currentTask.log.map((entry) => (
+                                          <li key={entry.id} className="px-4 py-2 flex items-center justify-between hover:bg-zinc-800/30 group">
+                                              <div className="flex items-center gap-2 text-zinc-300">
+                                                  <Clock size={12} className="text-zinc-500" />
+                                                  <span className="text-xs font-mono">
+                                                      {new Date(entry.timestamp).toLocaleDateString()} <span className="text-zinc-600">|</span> {new Date(entry.timestamp).toLocaleTimeString()}
+                                                  </span>
+                                              </div>
+                                              <button 
+                                                onClick={() => handleRemoveLogEntry(currentTask.id, entry.id)}
+                                                className="p-1 text-zinc-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                                title={t.delete}
+                                              >
+                                                  <Trash2 size={12} />
+                                              </button>
+                                          </li>
+                                      ))}
+                                  </ul>
+                              ) : (
+                                  <div className="p-4 text-center text-xs text-zinc-600 italic">{t.noHistory}</div>
+                              )}
+                          </div>
+                      </div>
+                  )}
+
                   <div>
                     <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.details}</h3>
                     <div className="bg-zinc-950/50 p-4 rounded-xl border border-zinc-800 min-h-[100px] text-zinc-300 whitespace-pre-wrap">
@@ -921,6 +1042,27 @@ function App() {
                 </div>
               ) : (
                 <div className="space-y-4">
+                  
+                  {/* Type Selector - Only visible when creating */}
+                  {!currentTask && (
+                      <div className="flex gap-2 p-1 bg-zinc-950 rounded-xl border border-zinc-800 mb-4">
+                          <button
+                            type="button"
+                            onClick={() => setFormType('simple')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${formType === 'simple' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                          >
+                              <Check size={14} /> {t.simpleTrack}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormType('counter')}
+                            className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${formType === 'counter' ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                          >
+                              <Plus size={14} /> {t.counterTrack}
+                          </button>
+                      </div>
+                  )}
+
                   <div>
                     <label className="block text-sm font-medium text-zinc-400 mb-1">{t.title}</label>
                     <input 

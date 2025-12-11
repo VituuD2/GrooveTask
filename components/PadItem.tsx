@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MoreVertical, Info, Check, Play, X, GripVertical, Move } from 'lucide-react';
+import { MoreVertical, Info, Check, Play, X, GripVertical, Move, Plus } from 'lucide-react';
 import { Task } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -30,6 +30,12 @@ const PadItem: React.FC<PadItemProps> = ({
 }) => {
   const { t } = useLanguage();
   const [showMenu, setShowMenu] = useState(false);
+  const isCounter = task.type === 'counter';
+  
+  // For counter, "active" means explicitly recently updated or just visually distinct.
+  // Actually, counters don't have a "completed" state in the same way, but let's use isCompleted for visual feedback if needed.
+  // Standardizing: Simple tracks use isCompleted. Counter tracks always look "active" but show count.
+  const isActiveSimple = !isCounter && task.isCompleted;
 
   return (
     <div 
@@ -38,15 +44,15 @@ const PadItem: React.FC<PadItemProps> = ({
         pad-item relative group aspect-square rounded-xl transition-all duration-200 ease-out
         flex flex-col justify-between p-2.5 overflow-hidden border-2 select-none
         ${isReordering ? 'cursor-move edit-mode-shake' : 'cursor-pointer'}
-        ${task.isCompleted 
+        ${isActiveSimple 
           ? 'bg-zinc-900 scale-[0.98]' 
           : 'bg-zinc-800 hover:bg-zinc-750'
         }
-        ${!isReordering && !task.isCompleted ? 'hover:-translate-y-1 hover:shadow-xl' : ''}
+        ${!isReordering && !isActiveSimple ? 'hover:-translate-y-1 hover:shadow-xl' : ''}
       `}
       style={{
-        borderColor: task.isCompleted ? themeColor : isReordering ? '#52525b' : 'transparent',
-        boxShadow: task.isCompleted ? `0 0 20px ${themeShadow}` : 'none',
+        borderColor: isActiveSimple || (isCounter && (task.count || 0) > 0) ? themeColor : isReordering ? '#52525b' : 'transparent',
+        boxShadow: isActiveSimple ? `0 0 20px ${themeShadow}` : 'none',
         ...style
       }}
       onClick={(e) => {
@@ -68,18 +74,34 @@ const PadItem: React.FC<PadItemProps> = ({
         #{index + 1}
       </div>
 
+      {/* Counter Big Number Display */}
+      {isCounter && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
+              <span className="text-6xl font-black text-white select-none">{task.count || 0}</span>
+          </div>
+      )}
+
       {/* Content */}
       <div className="mt-auto z-10 relative pointer-events-none">
          <div className="flex items-end justify-between gap-1.5">
-            <h3 className={`font-bold text-xs sm:text-sm leading-tight line-clamp-3 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
+            <h3 className={`font-bold text-xs sm:text-sm leading-tight line-clamp-3 ${isActiveSimple ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: isActiveSimple ? themeColor : undefined }}>
                {task.title}
             </h3>
             
             <div 
-              className={`shrink-0 w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center border transition-all ${task.isCompleted ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/50 border-zinc-700'}`}
-              style={{ borderColor: task.isCompleted ? themeColor : undefined, color: task.isCompleted ? themeColor : '#71717a' }}
+              className={`shrink-0 w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center border transition-all 
+                ${isActiveSimple ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/50 border-zinc-700'}
+              `}
+              style={{ 
+                  borderColor: (isActiveSimple || (isCounter && (task.count || 0) > 0)) ? themeColor : undefined, 
+                  color: (isActiveSimple || (isCounter && (task.count || 0) > 0)) ? themeColor : '#71717a' 
+              }}
             >
-              {task.isCompleted ? <Check size={12} strokeWidth={3} /> : <Play size={10} fill="currentColor" className="ml-0.5" />}
+              {isCounter ? (
+                  <span className="text-[10px] font-bold">{task.count || 0}</span>
+              ) : (
+                  isActiveSimple ? <Check size={12} strokeWidth={3} /> : <Play size={10} fill="currentColor" className="ml-0.5" />
+              )}
             </div>
          </div>
          {task.description && (

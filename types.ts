@@ -1,9 +1,24 @@
+export type TaskType = 'simple' | 'counter';
+
+export interface LogEntry {
+  id: string;
+  timestamp: number;
+}
+
 export interface Task {
   id: string;
+  type?: TaskType; // Defaults to 'simple' if undefined for legacy compatibility
   title: string;
   description: string;
+  
+  // Simple Track Props
   isCompleted: boolean;
   completedAt: number | null; // Timestamp
+  
+  // Counter Track Props
+  count?: number;
+  log?: LogEntry[];
+
   createdAt: number;
 }
 

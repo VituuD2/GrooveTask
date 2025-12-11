@@ -54,6 +54,12 @@ export interface Translation {
   description: string;
   descPlaceholder: string;
   editTrack: string;
+  trackType: string;
+  simpleTrack: string;
+  counterTrack: string;
+  history: string;
+  noHistory: string;
+  entryDeleted: string;
   
   // Delete Modal
   deleteTrackTitle: string;
@@ -130,6 +136,12 @@ export const translations: Record<LanguageCode, Translation> = {
     description: 'Description (Optional)',
     descPlaceholder: 'Add more context...',
     editTrack: 'Edit this track',
+    trackType: 'Track Type',
+    simpleTrack: 'Simple',
+    counterTrack: 'Counter',
+    history: 'History Log',
+    noHistory: 'No activity yet.',
+    entryDeleted: 'Entry deleted',
     deleteTrackTitle: 'Delete Track?',
     deleteConfirm: 'Are you sure you want to remove',
     actionUndone: 'This action cannot be undone.',
@@ -196,6 +208,12 @@ export const translations: Record<LanguageCode, Translation> = {
     description: 'Descrição (Opcional)',
     descPlaceholder: 'Adicione mais contexto...',
     editTrack: 'Editar esta faixa',
+    trackType: 'Tipo de Faixa',
+    simpleTrack: 'Simples',
+    counterTrack: 'Contador',
+    history: 'Histórico',
+    noHistory: 'Nenhuma atividade ainda.',
+    entryDeleted: 'Entrada excluída',
     deleteTrackTitle: 'Excluir Faixa?',
     deleteConfirm: 'Tem certeza que deseja remover',
     actionUndone: 'Esta ação não pode ser desfeita.',
@@ -262,6 +280,12 @@ export const translations: Record<LanguageCode, Translation> = {
     description: 'Descripción (Opcional)',
     descPlaceholder: 'Añade más contexto...',
     editTrack: 'Editar esta pista',
+    trackType: 'Tipo de Pista',
+    simpleTrack: 'Simple',
+    counterTrack: 'Contador',
+    history: 'Historial',
+    noHistory: 'Sin actividad aún.',
+    entryDeleted: 'Entrada eliminada',
     deleteTrackTitle: '¿Eliminar Pista?',
     deleteConfirm: '¿Estás seguro de que quieres eliminar',
     actionUndone: 'Esta acción no se puede deshacer.',
@@ -328,6 +352,12 @@ export const translations: Record<LanguageCode, Translation> = {
     description: 'Description (Optionnel)',
     descPlaceholder: 'Ajouter du contexte...',
     editTrack: 'Modifier cette piste',
+    trackType: 'Type de Piste',
+    simpleTrack: 'Simple',
+    counterTrack: 'Compteur',
+    history: 'Historique',
+    noHistory: 'Aucune activité.',
+    entryDeleted: 'Entrée supprimée',
     deleteTrackTitle: 'Supprimer la Piste ?',
     deleteConfirm: 'Êtes-vous sûr de vouloir supprimer',
     actionUndone: 'Cette action est irréversible.',
@@ -394,6 +424,12 @@ export const translations: Record<LanguageCode, Translation> = {
     description: 'Beschreibung (Optional)',
     descPlaceholder: 'Mehr Kontext hinzufügen...',
     editTrack: 'Diesen Track bearbeiten',
+    trackType: 'Track-Typ',
+    simpleTrack: 'Einfach',
+    counterTrack: 'Zähler',
+    history: 'Verlauf',
+    noHistory: 'Noch keine Aktivität.',
+    entryDeleted: 'Eintrag gelöscht',
     deleteTrackTitle: 'Track löschen?',
     deleteConfirm: 'Möchtest du wirklich entfernen:',
     actionUndone: 'Diese Aktion kann nicht rückgängig gemacht werden.',
