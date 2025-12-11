@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid, Save } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid, Save, Edit2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 // Fix for "does not provide an export named 'ReactSortable'" error
 import ReactSortablePkg from 'react-sortablejs';
@@ -43,6 +43,8 @@ function App() {
   // Auth State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
+  const [usernameChangeCount, setUsernameChangeCount] = useState(0);
   const [showLoginModal, setShowLoginModal] = useState(false);
   
   // UI State
@@ -56,6 +58,8 @@ function App() {
   const [tempTheme, setTempTheme] = useState<ThemeColor>(THEME_COLORS[0]);
   const [tempSound, setTempSound] = useState(true);
   const [tempLanguage, setTempLanguage] = useState<LanguageCode>('en');
+  const [tempUsername, setTempUsername] = useState('');
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -110,6 +114,8 @@ function App() {
           if (data.isAuthenticated) {
             setIsLoggedIn(true);
             setUserEmail(data.user?.email || 'User');
+            setUsername(data.user?.username || 'Artist');
+            setUsernameChangeCount(data.user?.usernameChangeCount || 0);
             
             if (data.user?.settings) {
                applySettings(data.user.settings);
@@ -136,7 +142,13 @@ function App() {
     const savedData = localStorage.getItem(STORAGE_KEY);
     if (savedData) {
       const parsed: AppState = JSON.parse(savedData);
-      applyResetLogic(parsed.tasks, parsed.history);
+      // Migration for local storage old format
+      const migratedTasks = parsed.tasks.map((t: any) => ({
+        ...t,
+        completedAt: t.completedAt !== undefined ? t.completedAt : (t.lastCompletedDate ? new Date(t.lastCompletedDate).getTime() : null),
+        lastCompletedDate: undefined // Remove old field
+      }));
+      applyResetLogic(migratedTasks, parsed.history);
     } else {
       setTasks(INITIAL_STATE.tasks);
       setHistory(INITIAL_STATE.history);
@@ -145,13 +157,21 @@ function App() {
 
   useEffect(() => {
     const handleFocus = () => {
-      const today = getToday();
+      const todayStr = getToday();
       setTasks(currentTasks => {
-        const needsReset = currentTasks.some(t => t.isCompleted && t.lastCompletedDate !== today);
+        const needsReset = currentTasks.some(t => {
+           if (!t.isCompleted || !t.completedAt) return false;
+           const taskDate = new Date(t.completedAt).toISOString().split('T')[0];
+           return taskDate !== todayStr;
+        });
+
         if (needsReset) {
           return currentTasks.map(t => {
-            if (t.isCompleted && t.lastCompletedDate !== today) {
-              return { ...t, isCompleted: false, lastCompletedDate: null };
+            if (t.isCompleted && t.completedAt) {
+               const taskDate = new Date(t.completedAt).toISOString().split('T')[0];
+               if (taskDate !== todayStr) {
+                  return { ...t, isCompleted: false, completedAt: null };
+               }
             }
             return t;
           });
@@ -167,10 +187,13 @@ function App() {
   // --- Data Logic Helpers ---
   
   const applyResetLogic = (loadedTasks: Task[], loadedHistory: DailyStat[]) => {
-      const today = getToday();
+      const todayStr = getToday();
       const updatedTasks = loadedTasks.map(t => {
-        if (t.isCompleted && t.lastCompletedDate !== today) {
-          return { ...t, isCompleted: false, lastCompletedDate: null };
+        if (t.isCompleted && t.completedAt) {
+          const taskDate = new Date(t.completedAt).toISOString().split('T')[0];
+          if (taskDate !== todayStr) {
+             return { ...t, isCompleted: false, completedAt: null };
+          }
         }
         return t;
       });
@@ -199,6 +222,7 @@ function App() {
   };
 
   const syncDataToServer = (currentTasks: Task[], currentHistory: DailyStat[]) => {
+      // Split payload logic handled by backend now, but we send both for simplicity in this version
       fetch('/api/user/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -231,17 +255,9 @@ function App() {
     localStorage.setItem(THEME_KEY, theme.id);
     localStorage.setItem('groovetask_sound', JSON.stringify(soundEnabled));
 
-    if (isLoggedIn) {
-      if (settingsSaveTimeoutRef.current) clearTimeout(settingsSaveTimeoutRef.current);
-      settingsSaveTimeoutRef.current = setTimeout(() => {
-        fetch('/api/user/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ themeId: theme.id, soundEnabled, language })
-        }).catch(err => console.error("Failed to sync settings:", err));
-      }, 2000);
-    }
-  }, [theme, soundEnabled, language, isLoggedIn]);
+    // Note: We don't auto-sync settings here anymore because we have a Save button logic for it.
+    // The explicit handleSaveSettings will handle the server push.
+  }, [theme, soundEnabled, language]);
 
   // --- Event Handlers ---
 
@@ -250,21 +266,59 @@ function App() {
     setTempTheme(theme);
     setTempSound(soundEnabled);
     setTempLanguage(language);
+    setTempUsername(username || '');
+    setSettingsError(null);
     setShowSettingsModal(true);
   };
 
   const hasSettingsChanged = 
     tempTheme.id !== theme.id || 
     tempSound !== soundEnabled || 
-    tempLanguage !== language;
+    tempLanguage !== language ||
+    (tempUsername !== username && tempUsername.length > 0);
 
-  const handleSaveSettings = () => {
+  const handleSaveSettings = async () => {
     if (!hasSettingsChanged) return;
+    setSettingsError(null);
     
-    // Commit temp state to real state
+    // Optimistic Update for local changes
     setTheme(tempTheme);
     setSoundEnabled(tempSound);
     setLanguage(tempLanguage);
+
+    if (isLoggedIn) {
+      try {
+        const res = await fetch('/api/user/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+             themeId: tempTheme.id, 
+             soundEnabled: tempSound, 
+             language: tempLanguage,
+             username: tempUsername !== username ? tempUsername : undefined
+          })
+        });
+
+        const data = await res.json();
+        
+        if (!res.ok) {
+           setSettingsError(data.error || 'Failed to save');
+           return; // Don't close modal on error
+        }
+
+        // Update username state if changed successfully
+        if (data.username) {
+           setUsername(data.username);
+           setUsernameChangeCount(data.usernameChangeCount);
+        }
+
+      } catch (err) {
+        console.error("Failed to sync settings:", err);
+        setSettingsError("Connection error");
+        return;
+      }
+    }
+    
     setShowSettingsModal(false);
   };
 
@@ -276,7 +330,7 @@ function App() {
       title: formTitle,
       description: formDesc,
       isCompleted: false,
-      lastCompletedDate: null,
+      completedAt: null,
       createdAt: Date.now()
     };
     
@@ -312,7 +366,6 @@ function App() {
     // Prevent toggling while reordering
     if (isReordering) return;
 
-    const today = getToday();
     let justFinishedAll = false;
 
     setTasks(prev => {
@@ -323,7 +376,7 @@ function App() {
           return {
             ...t,
             isCompleted: newState,
-            lastCompletedDate: newState ? today : null
+            completedAt: newState ? Date.now() : null
           };
         }
         return t;
@@ -350,17 +403,17 @@ function App() {
 
   // Sync History whenever tasks change
   useEffect(() => {
-    const today = getToday();
+    const todayStr = getToday();
     const completedCount = tasks.filter(t => t.isCompleted).length;
     
     setHistory(prev => {
-      const index = prev.findIndex(h => h.date === today);
+      const index = prev.findIndex(h => h.date === todayStr);
       if (index >= 0) {
         const updated = [...prev];
         updated[index] = { ...updated[index], completedCount, totalTasksAtEnd: tasks.length };
         return updated;
       } else {
-        return [...prev, { date: today, completedCount, totalTasksAtEnd: tasks.length }];
+        return [...prev, { date: todayStr, completedCount, totalTasksAtEnd: tasks.length }];
       }
     });
   }, [tasks]);
@@ -369,6 +422,8 @@ function App() {
   const handleLoginSuccess = (user: any) => {
     setIsLoggedIn(true);
     setUserEmail(user.email || 'User');
+    setUsername(user.username || 'Artist');
+    setUsernameChangeCount(user.usernameChangeCount || 0);
     
     if (user.settings) {
         applySettings(user.settings);
@@ -390,6 +445,7 @@ function App() {
       await fetch('/api/auth/logout', { method: 'POST' });
       setIsLoggedIn(false);
       setUserEmail(null);
+      setUsername(null);
       if (soundEnabled) playSound('click');
     } catch (e) {
       console.error("Logout failed", e);
@@ -503,11 +559,11 @@ function App() {
                         className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center font-bold text-xs border shadow-sm transition-all"
                         style={{ borderColor: theme.hex, color: theme.hex, boxShadow: `0 0 8px ${theme.shadow}` }}
                       >
-                        {userEmail ? userEmail[0].toUpperCase() : 'U'}
+                        {username ? username[0].toUpperCase() : 'U'}
                       </div>
                       <div className="flex flex-col truncate">
                         <span className="text-xs text-zinc-400">{t.signedInAs}</span>
-                        <span className="text-sm font-medium text-white truncate max-w-[120px]">{userEmail}</span>
+                        <span className="text-sm font-medium text-white truncate max-w-[120px]">{username}</span>
                       </div>
                     </div>
                     <button 
@@ -766,6 +822,35 @@ function App() {
                 </button>
              </div>
 
+             {/* Username Section (Only if logged in) */}
+             {isLoggedIn && (
+               <div className="mb-8">
+                 <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                   <Edit2 size={14} /> {t.username}
+                 </h3>
+                 <div className="space-y-2">
+                   <div className="relative">
+                      <input 
+                        type="text"
+                        value={tempUsername}
+                        onChange={(e) => setTempUsername(e.target.value.trim())}
+                        placeholder={t.usernamePlaceholder}
+                        disabled={usernameChangeCount >= 3}
+                        className={`w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900 ${usernameChangeCount >= 3 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        style={{ '--tw-ring-color': tempTheme.hex } as React.CSSProperties}
+                      />
+                      {usernameChangeCount >= 3 && (
+                        <div className="absolute right-3 top-3.5 text-xs text-red-500 font-medium">Max changes</div>
+                      )}
+                   </div>
+                   <div className="flex justify-between text-xs text-zinc-500">
+                      <span>{t.changesRemaining}: <span className="text-white font-medium">{Math.max(0, 3 - usernameChangeCount)}</span></span>
+                      {tempUsername.length > 0 && tempUsername.length < 3 && <span className="text-red-500">{t.usernameInvalid}</span>}
+                   </div>
+                 </div>
+               </div>
+             )}
+
              {/* Language Section */}
              <div className="mb-8">
                <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -820,16 +905,23 @@ function App() {
                 </button>
              </div>
 
+             {/* Error Message */}
+             {settingsError && (
+               <div className="mb-4 text-xs text-red-400 bg-red-500/10 p-2 rounded-lg text-center">
+                 {settingsError}
+               </div>
+             )}
+
              {/* Save Button */}
              <button
                 onClick={handleSaveSettings}
-                disabled={!hasSettingsChanged}
+                disabled={!hasSettingsChanged || (tempUsername.length > 0 && tempUsername.length < 3)}
                 className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
-                  hasSettingsChanged 
+                  hasSettingsChanged && !(tempUsername.length > 0 && tempUsername.length < 3)
                     ? 'text-white hover:scale-[1.02] active:scale-[0.98]' 
                     : 'bg-zinc-800 text-zinc-500 cursor-not-allowed shadow-none'
                 }`}
-                style={hasSettingsChanged ? { backgroundColor: tempTheme.hex, boxShadow: `0 4px 14px ${tempTheme.shadow}` } : {}}
+                style={hasSettingsChanged && !(tempUsername.length > 0 && tempUsername.length < 3) ? { backgroundColor: tempTheme.hex, boxShadow: `0 4px 14px ${tempTheme.shadow}` } : {}}
               >
                 <Save size={18} />
                 {t.saveChanges}

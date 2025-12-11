@@ -1,5 +1,13 @@
 export type LanguageCode = 'en' | 'pt-BR' | 'es' | 'fr' | 'de';
 
+export const LANGUAGE_NAMES: Record<LanguageCode, string> = {
+  en: 'English',
+  'pt-BR': 'Português (Brasil)',
+  es: 'Español',
+  fr: 'Français',
+  de: 'Deutsch',
+};
+
 export interface Translation {
   // General
   cancel: string;
@@ -55,6 +63,7 @@ export interface Translation {
   // Login Modal
   newArtist: string;
   backstageAccess: string;
+  emailOrUsername: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -78,6 +87,11 @@ export interface Translation {
   language: string;
   soundEffects: string;
   selectLanguage: string;
+  username: string;
+  usernamePlaceholder: string;
+  changesRemaining: string;
+  usernameTaken: string;
+  usernameInvalid: string;
 }
 
 export const translations: Record<LanguageCode, Translation> = {
@@ -121,6 +135,7 @@ export const translations: Record<LanguageCode, Translation> = {
     actionUndone: 'This action cannot be undone.',
     newArtist: 'New Artist Registration',
     backstageAccess: 'Backstage Access',
+    emailOrUsername: 'Email or Username',
     email: 'Email',
     password: 'Password',
     confirmPassword: 'Confirm Password',
@@ -139,7 +154,12 @@ export const translations: Record<LanguageCode, Translation> = {
     lighting: 'Lighting',
     language: 'Language',
     soundEffects: 'Sound Effects',
-    selectLanguage: 'Select Language'
+    selectLanguage: 'Select Language',
+    username: 'Artist Name (Username)',
+    usernamePlaceholder: 'Enter username',
+    changesRemaining: 'changes remaining',
+    usernameTaken: 'Username is already taken',
+    usernameInvalid: 'Invalid username (3-20 chars, no spaces)'
   },
   'pt-BR': {
     cancel: 'Cancelar',
@@ -181,6 +201,7 @@ export const translations: Record<LanguageCode, Translation> = {
     actionUndone: 'Esta ação não pode ser desfeita.',
     newArtist: 'Registro de Novo Artista',
     backstageAccess: 'Acesso aos Bastidores',
+    emailOrUsername: 'E-mail ou Usuário',
     email: 'E-mail',
     password: 'Senha',
     confirmPassword: 'Confirmar Senha',
@@ -199,7 +220,12 @@ export const translations: Record<LanguageCode, Translation> = {
     lighting: 'Iluminação',
     language: 'Idioma',
     soundEffects: 'Efeitos Sonoros',
-    selectLanguage: 'Selecione o Idioma'
+    selectLanguage: 'Selecione o Idioma',
+    username: 'Nome Artístico (Usuário)',
+    usernamePlaceholder: 'Digite o usuário',
+    changesRemaining: 'alterações restantes',
+    usernameTaken: 'Nome de usuário já existe',
+    usernameInvalid: 'Usuário inválido (3-20 chars, sem espaços)'
   },
   es: {
     cancel: 'Cancelar',
@@ -241,6 +267,7 @@ export const translations: Record<LanguageCode, Translation> = {
     actionUndone: 'Esta acción no se puede deshacer.',
     newArtist: 'Registro de Nuevo Artista',
     backstageAccess: 'Acceso Backstage',
+    emailOrUsername: 'Correo o Usuario',
     email: 'Correo',
     password: 'Contraseña',
     confirmPassword: 'Confirmar Contraseña',
@@ -259,7 +286,12 @@ export const translations: Record<LanguageCode, Translation> = {
     lighting: 'Iluminación',
     language: 'Idioma',
     soundEffects: 'Efectos de Sonido',
-    selectLanguage: 'Seleccionar Idioma'
+    selectLanguage: 'Seleccionar Idioma',
+    username: 'Nombre Artístico (Usuario)',
+    usernamePlaceholder: 'Ingresa usuario',
+    changesRemaining: 'cambios restantes',
+    usernameTaken: 'El nombre de usuario ya existe',
+    usernameInvalid: 'Usuario inválido (3-20 carácteres, sin espacios)'
   },
   fr: {
     cancel: 'Annuler',
@@ -301,6 +333,7 @@ export const translations: Record<LanguageCode, Translation> = {
     actionUndone: 'Cette action est irréversible.',
     newArtist: 'Inscription Nouvel Artiste',
     backstageAccess: 'Accès Coulisses',
+    emailOrUsername: 'E-mail ou Nom d\'utilisateur',
     email: 'E-mail',
     password: 'Mot de passe',
     confirmPassword: 'Confirmer Mot de passe',
@@ -319,7 +352,12 @@ export const translations: Record<LanguageCode, Translation> = {
     lighting: 'Éclairage',
     language: 'Langue',
     soundEffects: 'Effets Sonores',
-    selectLanguage: 'Choisir la Langue'
+    selectLanguage: 'Choisir la Langue',
+    username: 'Nom de Scène (Utilisateur)',
+    usernamePlaceholder: 'Entrez le nom d\'utilisateur',
+    changesRemaining: 'changements restants',
+    usernameTaken: 'Le nom d\'utilisateur est déjà pris',
+    usernameInvalid: 'Nom d\'utilisateur invalide (3-20 caractères)'
   },
   de: {
     cancel: 'Abbrechen',
@@ -361,6 +399,7 @@ export const translations: Record<LanguageCode, Translation> = {
     actionUndone: 'Diese Aktion kann nicht rückgängig gemacht werden.',
     newArtist: 'Neue Künstlerregistrierung',
     backstageAccess: 'Backstage-Zugang',
+    emailOrUsername: 'E-Mail oder Benutzername',
     email: 'E-Mail',
     password: 'Passwort',
     confirmPassword: 'Passwort bestätigen',
@@ -379,14 +418,11 @@ export const translations: Record<LanguageCode, Translation> = {
     lighting: 'Beleuchtung',
     language: 'Sprache',
     soundEffects: 'Soundeffekte',
-    selectLanguage: 'Sprache auswählen'
+    selectLanguage: 'Sprache auswählen',
+    username: 'Künstlername (Benutzername)',
+    usernamePlaceholder: 'Benutzername eingeben',
+    changesRemaining: 'Änderungen verbleibend',
+    usernameTaken: 'Benutzername ist bereits vergeben',
+    usernameInvalid: 'Ungültiger Benutzername (3-20 Zeichen)'
   }
-};
-
-export const LANGUAGE_NAMES: Record<LanguageCode, string> = {
-  en: 'English',
-  'pt-BR': 'Português (BR)',
-  es: 'Español',
-  fr: 'Français',
-  de: 'Deutsch'
 };

@@ -20,7 +20,7 @@ interface Task {
   title: string;
   description: string;
   isCompleted: boolean;
-  lastCompletedDate: string | null;
+  completedAt: number | null;
   createdAt: number;
 }
 
@@ -30,20 +30,20 @@ interface DailyStat {
   totalTasksAtEnd: number;
 }
 
-interface User {
+interface UserSettings {
+  themeId: string;
+  soundEnabled: boolean;
+  language?: string;
+}
+
+interface UserProfile {
   id: string;
   email: string;
+  username: string;
+  usernameChangeCount: number;
   passwordHash: string;
   createdAt: number;
-  settings?: {
-    themeId: string;
-    soundEnabled: boolean;
-    language?: string;
-  };
-  data?: {
-    tasks: Task[];
-    history: DailyStat[];
-  };
+  settings: UserSettings;
 }
 
 // --- CONFIGURATION ---
@@ -51,12 +51,10 @@ const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_do_not_use_in_prod';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
-// Critical for Vercel/Proxies
 app.set('trust proxy', 1);
 
-// Middleware
 app.use(helmet() as any);
-app.use(express.json({ limit: '10mb' }) as any); // Increased limit for data sync
+app.use(express.json({ limit: '10mb' }) as any);
 app.use(cookieParser() as any);
 
 // Rate Limiting
@@ -68,12 +66,43 @@ const authLimiter = rateLimit({
   legacyHeaders: false, 
 });
 
-// Validation Schema
-const authSchema = z.object({
+// Validation
+const registerSchema = z.object({
   email: z.string().email('Invalid email format'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   language: z.string().optional(),
 });
+
+const loginSchema = z.object({
+  identifier: z.string(), // email or username
+  password: z.string(),
+});
+
+const usernameSchema = z.string()
+  .min(3)
+  .max(20)
+  .regex(/^[a-zA-Z0-9_]+$/, 'Only letters, numbers, and underscores allowed');
+
+// --- HELPERS ---
+
+// Generate a unique username based on email part
+async function generateUniqueUsername(email: string): Promise<string> {
+  let base = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+  if (base.length < 3) base = base.padEnd(3, 'x');
+  if (base.length > 15) base = base.substring(0, 15);
+  
+  let candidate = base;
+  let attempts = 0;
+  
+  while (await redis.exists(`username:${candidate.toLowerCase()}`)) {
+    attempts++;
+    // Add 4 random digits
+    const suffix = Math.floor(1000 + Math.random() * 9000);
+    candidate = `${base}${suffix}`;
+    if (attempts > 10) throw new Error("Could not generate unique username");
+  }
+  return candidate;
+}
 
 // --- MIDDLEWARE HELPERS ---
 interface AuthRequest extends Request {
@@ -113,58 +142,62 @@ const setAuthCookie = (res: any, token: string) => {
 // 1. Register
 app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) => {
   try {
-    const validationResult = authSchema.safeParse(req.body);
-    
+    const validationResult = registerSchema.safeParse(req.body);
     if (!validationResult.success) {
       return res.status(400).json({ error: 'Invalid input format' });
     }
 
     const { email, password, language } = validationResult.data;
-    const userKey = `user:${email.toLowerCase()}`;
+    const cleanEmail = email.toLowerCase();
 
-    // Check if user exists
-    const existingUser = await redis.get(userKey);
-    if (existingUser) {
+    // Check email existence
+    const existingUid = await redis.get(`email:${cleanEmail}`);
+    if (existingUid) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+    
+    // Check old style existence for safety
+    const oldUser = await redis.get(`user:${cleanEmail}`);
+    if (oldUser) {
       return res.status(409).json({ error: 'User already exists' });
     }
 
-    // Create new user
     const passwordHash = await bcrypt.hash(password, 10);
-    const newUser: User = {
-      id: uuidv4(),
-      email: email.toLowerCase(),
+    const userId = uuidv4();
+    const username = await generateUniqueUsername(cleanEmail);
+
+    const newUser: UserProfile = {
+      id: userId,
+      email: cleanEmail,
+      username: username,
+      usernameChangeCount: 0,
       passwordHash,
       createdAt: Date.now(),
       settings: {
         themeId: 'neon-blue',
         soundEnabled: true,
         language: language || 'en'
-      },
-      data: {
-        tasks: [],
-        history: []
       }
     };
 
-    // Save to Redis
-    await redis.set(userKey, newUser);
+    // Transactional-ish save
+    await redis.set(`user:${userId}`, newUser);
+    await redis.set(`email:${cleanEmail}`, userId);
+    await redis.set(`username:${username.toLowerCase()}`, userId);
+    // Initialize empty collections
+    await redis.set(`data:tasks:${userId}`, []);
+    await redis.set(`data:history:${userId}`, []);
 
-    // Auto-login (Create Token)
-    const token = jwt.sign(
-      { uid: newUser.id, email: newUser.email }, 
-      JWT_SECRET, 
-      { expiresIn: '30d' }
-    );
-
+    const token = jwt.sign({ uid: userId, email: cleanEmail }, JWT_SECRET, { expiresIn: '30d' });
     setAuthCookie(res, token);
 
     return res.status(201).json({ 
       success: true, 
-      message: 'Account created', 
       user: { 
         email: newUser.email, 
+        username: newUser.username,
         settings: newUser.settings,
-        data: newUser.data 
+        data: { tasks: [], history: [] } 
       } 
     });
 
@@ -174,50 +207,120 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
   }
 });
 
-// 2. Login
+// 2. Login (Supports Migration & Email/Username)
 app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
   try {
-    const validationResult = authSchema.safeParse(req.body);
+    const validationResult = loginSchema.safeParse(req.body);
+    if (!validationResult.success) return res.status(400).json({ error: 'Invalid input' });
+
+    const { identifier, password } = validationResult.data;
+    const cleanId = identifier.toLowerCase();
     
-    if (!validationResult.success) {
-      return res.status(400).json({ error: 'Invalid input format' });
+    let userId = null;
+    let userProfile = null;
+    let requiresMigration = false;
+    let oldUserPayload: any = null;
+
+    // A. Attempt to resolve UID
+    if (cleanId.includes('@')) {
+       // It's an email
+       userId = await redis.get<string>(`email:${cleanId}`);
+       
+       // CHECK FOR LEGACY USER (Migration Trigger)
+       if (!userId) {
+          oldUserPayload = await redis.get(`user:${cleanId}`);
+          if (oldUserPayload) requiresMigration = true;
+       }
+    } else {
+       // It's a username
+       userId = await redis.get<string>(`username:${cleanId}`);
     }
 
-    const { email, password } = validationResult.data;
-    const userKey = `user:${email.toLowerCase()}`;
-    
-    // Fetch user from Redis
-    const user = await redis.get<User>(userKey);
-
-    // Timing Attack Mitigation
-    if (!user) {
+    // B. Validation
+    if (!userId && !requiresMigration) {
       const dummyHash = await bcrypt.hash('dummy', 10);
       await bcrypt.compare(password, dummyHash);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash);
-
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    // C. Get Profile (New System)
+    if (userId) {
+      userProfile = await redis.get<UserProfile>(`user:${userId}`);
+    } else if (requiresMigration && oldUserPayload) {
+      // Use old payload for password check
+      userProfile = { 
+         ...oldUserPayload, 
+         id: oldUserPayload.id || uuidv4(), // Should have ID, but fallback
+         passwordHash: oldUserPayload.passwordHash 
+      } as UserProfile;
     }
 
-    // Create Token
-    const token = jwt.sign(
-      { uid: user.id, email: user.email }, 
-      JWT_SECRET, 
-      { expiresIn: '30d' }
-    );
+    if (!userProfile) return res.status(401).json({ error: 'Invalid credentials' });
 
+    const isMatch = await bcrypt.compare(password, userProfile.passwordHash);
+    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
+
+    // D. Execute Migration if needed
+    if (requiresMigration && oldUserPayload) {
+       console.log(`Migrating user: ${cleanId}`);
+       const newUid = userProfile.id;
+       const newUsername = await generateUniqueUsername(cleanId);
+       
+       // Clean old data structure
+       // Old: { data: { tasks: [], history: [] }, settings: {} }
+       const oldTasks = oldUserPayload.data?.tasks || [];
+       const oldHistory = oldUserPayload.data?.history || [];
+       
+       // Normalize Tasks (Fix dates, remove redundant)
+       const normalizedTasks = oldTasks.map((t: any) => ({
+         id: t.id,
+         title: t.title,
+         description: t.description || '',
+         isCompleted: t.isCompleted,
+         completedAt: t.lastCompletedDate ? new Date(t.lastCompletedDate).getTime() : null, // Convert string date to timestamp
+         createdAt: t.createdAt || Date.now()
+       }));
+
+       const newUserProfile: UserProfile = {
+         id: newUid,
+         email: cleanId,
+         username: newUsername,
+         usernameChangeCount: 0,
+         passwordHash: oldUserPayload.passwordHash,
+         createdAt: oldUserPayload.createdAt || Date.now(),
+         settings: oldUserPayload.settings || { themeId: 'neon-blue', soundEnabled: true, language: 'en' }
+       };
+
+       // Save New Structure
+       await redis.set(`user:${newUid}`, newUserProfile);
+       await redis.set(`email:${cleanId}`, newUid);
+       await redis.set(`username:${newUsername.toLowerCase()}`, newUid);
+       await redis.set(`data:tasks:${newUid}`, normalizedTasks);
+       await redis.set(`data:history:${newUid}`, oldHistory);
+       
+       // Delete Old Key
+       await redis.del(`user:${cleanId}`);
+
+       userId = newUid;
+       userProfile = newUserProfile;
+    }
+
+    // E. Fetch Data (Separated Collections)
+    // We fetch them here to return a unified object to the frontend
+    const tasks = await redis.get<Task[]>(`data:tasks:${userId}`) || [];
+    const history = await redis.get<DailyStat[]>(`data:history:${userId}`) || [];
+
+    const token = jwt.sign({ uid: userProfile.id, email: userProfile.email }, JWT_SECRET, { expiresIn: '30d' });
     setAuthCookie(res, token);
 
     return res.status(200).json({ 
       success: true, 
-      message: 'Logged in successfully', 
       user: { 
-        email: user.email, 
-        settings: user.settings,
-        data: user.data || { tasks: [], history: [] }
+        email: userProfile.email,
+        username: userProfile.username,
+        usernameChangeCount: userProfile.usernameChangeCount,
+        settings: userProfile.settings,
+        data: { tasks, history }
       } 
     });
 
@@ -229,78 +332,108 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
 
 // 3. Logout
 app.post('/api/auth/logout', (req: any, res: any) => {
-  res.clearCookie('auth_session', {
-    httpOnly: true,
-    secure: IS_PROD,
-    sameSite: 'strict',
-    path: '/'
-  });
+  res.clearCookie('auth_session', { httpOnly: true, secure: IS_PROD, sameSite: 'strict', path: '/' });
   return res.status(200).json({ message: 'Logged out' });
 });
 
-// 4. Me (Check Session & Get Full Data)
+// 4. Me (Get Full Data)
 app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
   if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  // Fetch full user data to get settings and data
-  const userKey = `user:${authReq.user.email.toLowerCase()}`;
-  const user = await redis.get<User>(userKey);
+  const userId = authReq.user.uid;
+  const user = await redis.get<UserProfile>(`user:${userId}`);
 
   if (!user) return res.status(404).json({ error: 'User not found' });
+
+  // Fetch separate collections
+  const tasks = await redis.get<Task[]>(`data:tasks:${userId}`) || [];
+  const history = await redis.get<DailyStat[]>(`data:history:${userId}`) || [];
 
   return res.status(200).json({ 
     isAuthenticated: true, 
     user: { 
       email: user.email,
+      username: user.username,
+      usernameChangeCount: user.usernameChangeCount || 0,
       settings: user.settings,
-      data: user.data || { tasks: [], history: [] }
+      data: { tasks, history }
     } 
   });
 });
 
-// 5. Update Settings
+// 5. Update Settings & Profile
 app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
-  if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
-
-  const { themeId, soundEnabled, language } = req.body;
-
-  const userKey = `user:${authReq.user.email.toLowerCase()}`;
-  const user = await redis.get<User>(userKey);
-
+  const userId = authReq.user?.uid;
+  const user = await redis.get<UserProfile>(`user:${userId}`);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  // Update settings
+  const { themeId, soundEnabled, language, username } = req.body;
+
+  // Handle Username Change
+  if (username && username.toLowerCase() !== user.username.toLowerCase()) {
+     const cleanUser = username.toLowerCase();
+     
+     // Validate Format
+     const formatCheck = usernameSchema.safeParse(username);
+     if (!formatCheck.success) return res.status(400).json({ error: 'Invalid username format' });
+
+     // Check Limits
+     const count = user.usernameChangeCount || 0;
+     if (count >= 3) return res.status(403).json({ error: 'Max username changes reached' });
+
+     // Check Uniqueness
+     const exists = await redis.exists(`username:${cleanUser}`);
+     if (exists) return res.status(409).json({ error: 'Username taken' });
+
+     // Perform Change
+     await redis.del(`username:${user.username.toLowerCase()}`); // Remove old index
+     await redis.set(`username:${cleanUser}`, userId); // Add new index
+     user.username = username; // We save the display version (cased) but index is lowercase
+     user.usernameChangeCount = count + 1;
+  }
+
+  // Update other settings
   user.settings = { 
     themeId: themeId || user.settings?.themeId || 'neon-blue', 
     soundEnabled: soundEnabled ?? user.settings?.soundEnabled ?? true,
     language: language || user.settings?.language || 'en'
   };
-  await redis.set(userKey, user);
 
-  return res.status(200).json({ success: true, settings: user.settings });
+  await redis.set(`user:${userId}`, user);
+
+  return res.status(200).json({ 
+    success: true, 
+    settings: user.settings, 
+    username: user.username, 
+    usernameChangeCount: user.usernameChangeCount 
+  });
 });
 
-// 6. Sync User Data (Tasks & History)
+// 6. Sync Data (Tasks & History separate)
 app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
-  if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
-
+  const userId = authReq.user?.uid;
+  
   const { tasks, history } = req.body;
 
-  if (!Array.isArray(tasks) || !Array.isArray(history)) {
-     return res.status(400).json({ error: 'Invalid data format' });
+  if (tasks && Array.isArray(tasks)) {
+    // Sanitize tasks before saving to remove any frontend artifacts if any
+    const cleanTasks = tasks.map(t => ({
+       id: t.id,
+       title: t.title,
+       description: t.description || '',
+       isCompleted: t.isCompleted,
+       completedAt: t.completedAt,
+       createdAt: t.createdAt
+    }));
+    await redis.set(`data:tasks:${userId}`, cleanTasks);
   }
 
-  const userKey = `user:${authReq.user.email.toLowerCase()}`;
-  const user = await redis.get<User>(userKey);
-
-  if (!user) return res.status(404).json({ error: 'User not found' });
-
-  // Update data
-  user.data = { tasks, history };
-  await redis.set(userKey, user);
+  if (history && Array.isArray(history)) {
+    await redis.set(`data:history:${userId}`, history);
+  }
 
   return res.status(200).json({ success: true });
 });

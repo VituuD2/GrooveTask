@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Mail, Loader2, X, AlertCircle, UserPlus, LogIn } from 'lucide-react';
+import { Lock, Mail, Loader2, X, AlertCircle, UserPlus, LogIn, User } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface LoginModalProps {
@@ -35,9 +35,10 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
     try {
       const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login';
       
+      // On login we send 'identifier' which can be email or username
       const payload = isRegistering 
         ? { email, password, language } 
-        : { email, password };
+        : { identifier: email, password }; 
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -123,16 +124,22 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLoginSuccess
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">{t.email}</label>
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">
+                {isRegistering ? t.email : t.emailOrUsername}
+              </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-3 text-zinc-600" size={18} />
+                {isRegistering ? (
+                  <Mail className="absolute left-3 top-3 text-zinc-600" size={18} />
+                ) : (
+                  <User className="absolute left-3 top-3 text-zinc-600" size={18} />
+                )}
                 <input 
-                  type="email"
+                  type={isRegistering ? "email" : "text"}
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900 placeholder:text-zinc-700"
                   style={{ '--tw-ring-color': themeColor } as React.CSSProperties}
-                  placeholder="user@example.com"
+                  placeholder={isRegistering ? "user@example.com" : "username"}
                   required
                 />
               </div>

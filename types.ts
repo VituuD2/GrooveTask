@@ -3,12 +3,12 @@ export interface Task {
   title: string;
   description: string;
   isCompleted: boolean;
-  lastCompletedDate: string | null; // Format YYYY-MM-DD
+  completedAt: number | null; // Timestamp
   createdAt: number;
 }
 
 export interface DailyStat {
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (Keep string for chart grouping)
   completedCount: number;
   totalTasksAtEnd: number;
 }
@@ -22,5 +22,20 @@ export interface ThemeColor {
   id: string;
   name: string;
   hex: string;
-  shadow: string; // Tailwind class equivalent for shadow color if needed, or hex
+  shadow: string; 
+}
+
+export interface UserSettings {
+  themeId: string;
+  soundEnabled: boolean;
+  language?: string;
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  username: string;
+  usernameChangeCount: number;
+  createdAt: number;
+  settings: UserSettings;
 }
