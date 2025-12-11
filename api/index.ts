@@ -85,8 +85,10 @@ const usernameSchema = z.string()
 
 // --- HELPERS ---
 
-// Generate a unique username based on email part
-async function generateUniqueUsername(email: string): Promise<string> {
+// Atomic Username Generation & Claim
+// This solves the race condition by using SET ... NX. 
+// If it returns a string, that username has been successfully written to Redis for this userId.
+async function generateAndClaimUniqueUsername(email: string, userId: string): Promise<string> {
   let base = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
   if (base.length < 3) base = base.padEnd(3, 'x');
   if (base.length > 15) base = base.substring(0, 15);
@@ -94,14 +96,23 @@ async function generateUniqueUsername(email: string): Promise<string> {
   let candidate = base;
   let attempts = 0;
   
-  while (await redis.exists(`username:${candidate.toLowerCase()}`)) {
+  while (attempts < 10) {
+    // Try to atomically set the username key only if it doesn't exist (nx: true)
+    const result = await redis.set(`username:${candidate.toLowerCase()}`, userId, { nx: true });
+    
+    // Fix: result is string|null, removed comparison with number 1
+    if (result === 'OK') {
+      // Successfully claimed
+      return candidate;
+    }
+
+    // Collision (race condition or existing user), modify candidate and retry
     attempts++;
-    // Add 4 random digits
     const suffix = Math.floor(1000 + Math.random() * 9000);
     candidate = `${base}${suffix}`;
-    if (attempts > 10) throw new Error("Could not generate unique username");
   }
-  return candidate;
+  
+  throw new Error("Could not generate unique username after multiple attempts");
 }
 
 // Helper: Get Tasks (Handles migration from String Array to Hash & Sorting)
@@ -181,7 +192,7 @@ async function getTasks(uid: string): Promise<Task[]> {
 }
 
 // Helper: Save Tasks (Sync logic using Hash)
-async function saveTasks(uid: string, tasks: any[]) {
+async function saveTasks(uid: string, tasks: any[], forceEmpty: boolean = false) {
   const key = `data:tasks:${uid}`;
   
   // Clean input tasks
@@ -195,8 +206,13 @@ async function saveTasks(uid: string, tasks: any[]) {
   }));
 
   if (cleanTasks.length === 0) {
-    // If empty list, remove the key
-    await redis.del(key);
+    if (forceEmpty) {
+       // Only delete if explicitly requested via flag
+       await redis.del(key);
+    } else {
+       // Otherwise ignore to prevent accidental data loss (safety mechanism)
+       console.warn(`[Data Safety] Ignored empty task sync for user ${uid} without forceEmpty flag.`);
+    }
     return;
   }
 
@@ -291,7 +307,10 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
 
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = uuidv4();
-    const username = await generateUniqueUsername(cleanEmail);
+    
+    // Atomically generate and claim username
+    // This function performs the redis.set with NX option
+    const username = await generateAndClaimUniqueUsername(cleanEmail, userId);
 
     const newUser: UserProfile = {
       id: userId,
@@ -307,12 +326,12 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
       }
     };
 
-    // Transactional-ish save
+    // Save remaining data
     await redis.set(`user:${userId}`, newUser);
     await redis.set(`email:${cleanEmail}`, userId);
-    await redis.set(`username:${username.toLowerCase()}`, userId);
+    // Note: Username key is already set by generateAndClaimUniqueUsername
     
-    // Initialize History (Hash for tasks is auto-created, Order key auto-created on save)
+    // Initialize History
     await redis.set(`data:history:${userId}`, []);
 
     const token = jwt.sign({ uid: userId, email: cleanEmail }, JWT_SECRET, { expiresIn: '30d' });
@@ -391,7 +410,9 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
     if (requiresMigration && oldUserPayload) {
        console.log(`Migrating user: ${cleanId}`);
        const newUid = userProfile.id;
-       const newUsername = await generateUniqueUsername(cleanId);
+       
+       // Atomic claim for migration too
+       const newUsername = await generateAndClaimUniqueUsername(cleanId, newUid);
        
        // Clean old data structure
        const oldTasks = oldUserPayload.data?.tasks || [];
@@ -410,7 +431,7 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
        // Save New Structure
        await redis.set(`user:${newUid}`, newUserProfile);
        await redis.set(`email:${cleanId}`, newUid);
-       await redis.set(`username:${newUsername.toLowerCase()}`, newUid);
+       // Username key set by helper
        
        // Handle Tasks Migration via helper logic or direct
        if (oldTasks.length > 0) {
@@ -512,13 +533,21 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
      const cleanUser = username.toLowerCase();
      const formatCheck = usernameSchema.safeParse(username);
      if (!formatCheck.success) return res.status(400).json({ error: 'Invalid username format' });
+     
      const count = user.usernameChangeCount || 0;
      if (count >= 3) return res.status(403).json({ error: 'Max username changes reached' });
-     const exists = await redis.exists(`username:${cleanUser}`);
-     if (exists) return res.status(409).json({ error: 'Username taken' });
+     
+     // Atomic Claim: Try to set new username key with NX (Not Exists)
+     // This prevents the race condition where we check exists(), then someone else takes it, then we set()
+     const claimed = await redis.set(`username:${cleanUser}`, userId, { nx: true });
+     
+     if (!claimed) {
+        return res.status(409).json({ error: 'Username taken' });
+     }
 
+     // Clean up old username
      await redis.del(`username:${user.username.toLowerCase()}`); 
-     await redis.set(`username:${cleanUser}`, userId);
+     
      user.username = username;
      user.usernameChangeCount = count + 1;
   }
@@ -539,16 +568,36 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
   });
 });
 
-// 6. Sync Data (Tasks via Hash, Order via String, History separate)
+// 6. Check Username Availability (Real-time)
+app.get('/api/auth/check-username', async (req: any, res: any) => {
+  const { username } = req.query;
+  
+  if (!username || typeof username !== 'string') {
+    return res.status(400).json({ error: 'Username required' });
+  }
+
+  const cleanUser = username.toLowerCase();
+  
+  // Basic Format Check
+  if (cleanUser.length < 3 || cleanUser.length > 20 || !/^[a-zA-Z0-9_]+$/.test(cleanUser)) {
+      return res.json({ available: false, reason: 'Invalid format' });
+  }
+
+  const exists = await redis.exists(`username:${cleanUser}`);
+  return res.json({ available: !exists });
+});
+
+
+// 7. Sync Data (Tasks via Hash, Order via String, History separate)
 app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
   const userId = authReq.user?.uid;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   
-  const { tasks, history, order } = req.body;
+  const { tasks, history, order, forceEmpty } = req.body;
 
   if (tasks && Array.isArray(tasks)) {
-    await saveTasks(userId, tasks);
+    await saveTasks(userId, tasks, !!forceEmpty);
   }
 
   if (history && Array.isArray(history)) {

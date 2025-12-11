@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid, Save, Edit2 } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid, Save, Edit2, Loader2, AlertCircle } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 // Fix for "does not provide an export named 'ReactSortable'" error
 import ReactSortablePkg from 'react-sortablejs';
@@ -62,6 +62,9 @@ function App() {
   const [tempLanguage, setTempLanguage] = useState<LanguageCode>('en');
   const [tempUsername, setTempUsername] = useState('');
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  
+  // Username Availability State
+  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'error'>('idle');
 
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -76,6 +79,7 @@ function App() {
 
   // Refs for debouncing and syncing
   const tasksRef = useRef<Task[]>(tasks); // Ref to track tasks for Sortable onEnd
+  const checkUsernameTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- Dynamic Favicon Effect ---
   useEffect(() => {
@@ -102,6 +106,49 @@ function App() {
 
     updateFavicon();
   }, [theme]);
+
+  // --- Check Username Effect (Debounced) ---
+  useEffect(() => {
+    if (!showSettingsModal || !isLoggedIn || !tempUsername) return;
+
+    // Reset status if empty or same as current
+    if (tempUsername === username) {
+        setUsernameStatus('idle');
+        return;
+    }
+    
+    // Basic format check
+    if (tempUsername.length < 3 || tempUsername.length > 20 || !/^[a-zA-Z0-9_]+$/.test(tempUsername)) {
+        setUsernameStatus('error');
+        return;
+    }
+
+    setUsernameStatus('checking');
+
+    // Debounce API call
+    if (checkUsernameTimerRef.current) clearTimeout(checkUsernameTimerRef.current);
+
+    checkUsernameTimerRef.current = setTimeout(async () => {
+        try {
+            const res = await fetch(`/api/auth/check-username?username=${tempUsername}`);
+            const data = await res.json();
+            if (data.available) {
+                setUsernameStatus('available');
+            } else {
+                setUsernameStatus('taken');
+            }
+        } catch (e) {
+            console.error("Failed to check username", e);
+            setUsernameStatus('error');
+        }
+    }, 500); // 500ms delay
+
+    return () => {
+        if (checkUsernameTimerRef.current) clearTimeout(checkUsernameTimerRef.current);
+    };
+
+  }, [tempUsername, showSettingsModal, isLoggedIn, username]);
+
 
   // --- Initialization & Storage ---
   useEffect(() => {
@@ -245,10 +292,19 @@ function App() {
     if (isLoggedIn) {
        try {
          const order = newTasks.map(t => t.id); // Extract order
+         
+         // Safety: If tasks are empty, we must flag it to allow deletion
+         const forceEmpty = newTasks.length === 0;
+
          const res = await fetch('/api/user/data', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ tasks: newTasks, history: newHistory, order }) // Send order too
+           body: JSON.stringify({ 
+             tasks: newTasks, 
+             history: newHistory, 
+             order,
+             forceEmpty // Explicitly allow empty list
+           }) 
          });
          if (!res.ok) throw new Error("Sync failed");
        } catch (err) {
@@ -293,6 +349,7 @@ function App() {
     setTempLanguage(language);
     setTempUsername(username || '');
     setSettingsError(null);
+    setUsernameStatus('idle'); // Reset status check
     setShowSettingsModal(true);
   };
 
@@ -304,6 +361,12 @@ function App() {
 
   const handleSaveSettings = async () => {
     if (!hasSettingsChanged) return;
+    
+    // Prevent saving if username is taken
+    if (tempUsername !== username && tempUsername.length > 0 && usernameStatus !== 'available') {
+        return;
+    }
+
     setSettingsError(null);
     
     // Optimistic Update for local changes
@@ -953,10 +1016,29 @@ function App() {
                       {usernameChangeCount >= 3 && (
                         <div className="absolute right-3 top-3.5 text-xs text-red-500 font-medium">Max changes</div>
                       )}
+                      
+                      {/* Availability Indicator */}
+                      {tempUsername !== username && tempUsername.length > 0 && usernameChangeCount < 3 && (
+                        <div className="absolute right-3 top-3.5">
+                            {usernameStatus === 'checking' && <Loader2 size={16} className="animate-spin text-zinc-500" />}
+                            {usernameStatus === 'available' && <Check size={16} className="text-green-500" />}
+                            {usernameStatus === 'taken' && <X size={16} className="text-red-500" />}
+                            {usernameStatus === 'error' && <AlertCircle size={16} className="text-red-500" />}
+                        </div>
+                      )}
+
                    </div>
-                   <div className="flex justify-between text-xs text-zinc-500">
+                   <div className="flex justify-between text-xs text-zinc-500 min-h-[1.25rem]">
                       <span>{t.changesRemaining}: <span className="text-white font-medium">{Math.max(0, 3 - usernameChangeCount)}</span></span>
-                      {tempUsername.length > 0 && tempUsername.length < 3 && <span className="text-red-500">{t.usernameInvalid}</span>}
+                      
+                      {/* Validation Messages */}
+                      {tempUsername.length > 0 && (
+                          <span>
+                            {tempUsername.length < 3 && <span className="text-red-500">{t.usernameInvalid}</span>}
+                            {usernameStatus === 'taken' && <span className="text-red-500">{t.usernameTaken}</span>}
+                            {usernameStatus === 'available' && <span className="text-green-500">Available</span>}
+                          </span>
+                      )}
                    </div>
                  </div>
                </div>
@@ -1026,13 +1108,17 @@ function App() {
              {/* Save Button */}
              <button
                 onClick={handleSaveSettings}
-                disabled={!hasSettingsChanged || (tempUsername.length > 0 && tempUsername.length < 3)}
+                disabled={
+                    !hasSettingsChanged || 
+                    (tempUsername.length > 0 && tempUsername.length < 3) ||
+                    (tempUsername !== username && usernameStatus !== 'available')
+                }
                 className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
-                  hasSettingsChanged && !(tempUsername.length > 0 && tempUsername.length < 3)
+                  hasSettingsChanged && !(tempUsername.length > 0 && tempUsername.length < 3) && !(tempUsername !== username && usernameStatus !== 'available')
                     ? 'text-white hover:scale-[1.02] active:scale-[0.98]' 
                     : 'bg-zinc-800 text-zinc-500 cursor-not-allowed shadow-none'
                 }`}
-                style={hasSettingsChanged && !(tempUsername.length > 0 && tempUsername.length < 3) ? { backgroundColor: tempTheme.hex, boxShadow: `0 4px 14px ${tempTheme.shadow}` } : {}}
+                style={hasSettingsChanged && !(tempUsername.length > 0 && tempUsername.length < 3) && !(tempUsername !== username && usernameStatus !== 'available') ? { backgroundColor: tempTheme.hex, boxShadow: `0 4px 14px ${tempTheme.shadow}` } : {}}
               >
                 <Save size={18} />
                 {t.saveChanges}
