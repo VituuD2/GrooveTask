@@ -3,7 +3,7 @@ import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, C
 import { v4 as uuidv4 } from 'uuid';
 
 import { Task, AppState, DailyStat, ThemeColor } from './types';
-import { THEME_COLORS, STORAGE_KEY, THEME_KEY } from './constants';
+import { THEME_COLORS, STORAGE_KEY, THEME_KEY, APP_VERSION } from './constants';
 import { playSound } from './services/audio';
 import { useLanguage } from './contexts/LanguageContext';
 import { LANGUAGE_NAMES, LanguageCode } from './translations';
@@ -56,6 +56,7 @@ function App() {
   const dragStartIndexRef = useRef<number | null>(null);
   const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDraggingRef = useRef(false);
+  const justDraggedRef = useRef(false);
   const pointerStartRef = useRef<{x: number, y: number} | null>(null);
 
   // Delete Modal State
@@ -238,10 +239,7 @@ function App() {
           const hoverIndexStr = padItem.getAttribute('data-index');
           if (hoverIndexStr) {
             const hoverIndex = parseInt(hoverIndexStr, 10);
-            const currentIndex = dragStartIndexRef.current; // This ref needs to be up to date with state? 
-            
-            // Actually, we need to compare with the CURRENT index of the dragged item
-            // Since we update state, we need to know where our item is NOW.
+            const currentIndex = dragStartIndexRef.current; 
             
             if (currentIndex !== null && hoverIndex !== currentIndex) {
               // Reorder
@@ -265,13 +263,19 @@ function App() {
         clearTimeout(longPressTimeoutRef.current);
       }
       
-      if (isDraggingRef.current) {
-        isDraggingRef.current = false;
+      const wasDragging = isDraggingRef.current;
+
+      if (wasDragging) {
+        justDraggedRef.current = true;
+        // Keep the justDragged flag true for a short moment to block any subsequent click events
+        setTimeout(() => { justDraggedRef.current = false; }, 50);
+
         setDraggingIndex(null);
         setGhostPos(null);
         if (soundEnabled) playSound('click'); // Drop sound
       }
 
+      isDraggingRef.current = false;
       dragItemRef.current = null;
       dragStartIndexRef.current = null;
       pointerStartRef.current = null;
@@ -410,8 +414,8 @@ function App() {
   };
 
   const handleToggleTask = (id: string) => {
-    // If we were just dragging, do not toggle
-    if (isDraggingRef.current) return;
+    // If we were just dragging or just finished dragging, do not toggle
+    if (isDraggingRef.current || justDraggedRef.current) return;
 
     const today = getToday();
     let justFinishedAll = false;
@@ -659,6 +663,10 @@ function App() {
                   totalCompletedToday={completedToday}
                   themeColor={theme.hex}
                 />
+             </div>
+             
+             <div className="p-4 text-xs text-zinc-600 text-center border-t border-zinc-800/50 font-mono">
+               {APP_VERSION}
              </div>
            </div>
         </div>

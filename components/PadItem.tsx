@@ -35,13 +35,6 @@ const PadItem: React.FC<PadItemProps> = ({
   const { t } = useLanguage();
   const [showMenu, setShowMenu] = useState(false);
 
-  const handleToggle = () => {
-    // Prevent toggle if we were dragging (handled by parent usually, but good safeguard)
-    if (!isDragging) {
-      onToggle(task.id);
-    }
-  };
-
   return (
     <div 
       data-index={index}
@@ -68,7 +61,7 @@ const PadItem: React.FC<PadItemProps> = ({
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('.action-btn')) return;
         if ((e.target as HTMLElement).closest('.menu-container')) return;
-        // The parent determines if this was a drag or a click
+        onToggle(task.id);
       }}
     >
       {/* Order Badge */}
