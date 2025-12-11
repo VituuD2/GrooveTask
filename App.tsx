@@ -17,6 +17,7 @@ import PadItem from './components/PadItem';
 import StatsPanel from './components/StatsPanel';
 import DeleteModal from './components/DeleteModal';
 import LoginModal from './components/LoginModal';
+import Toast, { ToastMessage, ToastType } from './components/Toast';
 
 // --- Helper Functions ---
 const getToday = () => new Date().toISOString().split('T')[0];
@@ -53,6 +54,7 @@ function App() {
   const [showCongrats, setShowCongrats] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isReordering, setIsReordering] = useState(false); // Edit Mode
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Settings Temporary State (for the Save button logic)
   const [tempTheme, setTempTheme] = useState<ThemeColor>(THEME_COLORS[0]);
@@ -74,7 +76,6 @@ function App() {
 
   // Refs for debouncing and syncing
   const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dataSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRemoteUpdate = useRef(false);
 
   // --- Dynamic Favicon Effect ---
@@ -221,42 +222,42 @@ function App() {
      }
   };
 
-  const syncDataToServer = (currentTasks: Task[], currentHistory: DailyStat[]) => {
-      // Split payload logic handled by backend now, but we send both for simplicity in this version
-      fetch('/api/user/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tasks: currentTasks, history: currentHistory })
-      }).catch(err => console.error("Failed to sync data:", err));
+  // --- Toasts Helper ---
+  const addToast = (message: string, type: ToastType = 'info') => {
+    const id = uuidv4();
+    setToasts(prev => [...prev, { id, message, type }]);
   };
 
-  // --- Effects for Saving ---
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
 
-  // Save Task Data (Local + Cloud)
-  useEffect(() => {
-    const data: AppState = { tasks, history };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  // --- Async Sync Handler ---
+  // This replaces the old useEffect. It is called explicitly for optimistic UI.
+  const persistData = async (newTasks: Task[], newHistory: DailyStat[]) => {
+    // 1. Save Local Storage Always
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: newTasks, history: newHistory }));
 
-    if (isLoggedIn) {
-       if (isRemoteUpdate.current) {
-          isRemoteUpdate.current = false;
-          return;
+    // 2. Sync Remote if Logged In
+    if (isLoggedIn && !isRemoteUpdate.current) {
+       try {
+         const res = await fetch('/api/user/data', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ tasks: newTasks, history: newHistory })
+         });
+         if (!res.ok) throw new Error("Sync failed");
+       } catch (err) {
+         // Rethrow to let the optimistic handler know it failed
+         throw err;
        }
-
-       if (dataSaveTimeoutRef.current) clearTimeout(dataSaveTimeoutRef.current);
-       dataSaveTimeoutRef.current = setTimeout(() => {
-          syncDataToServer(tasks, history);
-       }, 2000); 
     }
-  }, [tasks, history, isLoggedIn]);
+  };
 
-  // Save Settings (Local + Cloud)
+  // --- Effects for Saving Settings Only ---
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme.id);
     localStorage.setItem('groovetask_sound', JSON.stringify(soundEnabled));
-
-    // Note: We don't auto-sync settings here anymore because we have a Save button logic for it.
-    // The explicit handleSaveSettings will handle the server push.
   }, [theme, soundEnabled, language]);
 
   // --- Event Handlers ---
@@ -311,6 +312,7 @@ function App() {
            setUsername(data.username);
            setUsernameChangeCount(data.usernameChangeCount);
         }
+        addToast("Settings saved", "success");
 
       } catch (err) {
         console.error("Failed to sync settings:", err);
@@ -322,9 +324,14 @@ function App() {
     setShowSettingsModal(false);
   };
 
-  const handleCreateTask = () => {
+  // --- Optimistic Handlers ---
+
+  const handleCreateTask = async () => {
     if (!formTitle.trim()) return;
     
+    const prevTasks = [...tasks];
+    const prevHistory = [...history];
+
     const newTask: Task = {
       id: uuidv4(),
       title: formTitle,
@@ -334,64 +341,124 @@ function App() {
       createdAt: Date.now()
     };
     
-    setTasks(prev => [...prev, newTask]);
+    const newTasks = [...tasks, newTask];
+    
+    // 1. Optimistic Update
+    setTasks(newTasks);
     closeModal();
     if (soundEnabled) playSound('click');
+
+    // 2. Persist
+    try {
+      await persistData(newTasks, history);
+    } catch (error) {
+      // Revert on failure
+      setTasks(prevTasks);
+      setHistory(prevHistory);
+      addToast("Failed to create task", "error");
+    }
   };
 
-  const handleUpdateTask = () => {
+  const handleUpdateTask = async () => {
     if (!currentTask || !formTitle.trim()) return;
+
+    const prevTasks = [...tasks];
+    const prevHistory = [...history];
     
-    setTasks(prev => prev.map(t => 
+    const newTasks = tasks.map(t => 
       t.id === currentTask.id 
         ? { ...t, title: formTitle, description: formDesc }
         : t
-    ));
+    );
+
+    // 1. Optimistic Update
+    setTasks(newTasks);
     closeModal();
+    
+    // 2. Persist
+    try {
+      await persistData(newTasks, history);
+    } catch (error) {
+      setTasks(prevTasks);
+      setHistory(prevHistory);
+      addToast("Failed to update task", "error");
+    }
   };
 
   const handleDeleteRequest = (id: string) => {
     setDeleteTaskId(id);
   };
 
-  const confirmDeleteTask = () => {
+  const confirmDeleteTask = async () => {
     if (deleteTaskId) {
-      setTasks(prev => prev.filter(t => t.id !== deleteTaskId));
+      const prevTasks = [...tasks];
+      const prevHistory = [...history];
+
+      const newTasks = tasks.filter(t => t.id !== deleteTaskId);
+      
+      // 1. Optimistic Update
+      setTasks(newTasks);
       if (soundEnabled) playSound('click');
       setDeleteTaskId(null);
+
+      // 2. Persist
+      try {
+        await persistData(newTasks, history);
+      } catch (error) {
+        setTasks(prevTasks);
+        setHistory(prevHistory);
+        addToast("Failed to delete task", "error");
+      }
     }
   };
 
-  const handleToggleTask = (id: string) => {
+  const handleToggleTask = async (id: string) => {
     // Prevent toggling while reordering
     if (isReordering) return;
 
+    const prevTasks = [...tasks];
+    const prevHistory = [...history];
+
     let justFinishedAll = false;
+    let newTasks = [...tasks];
+    let newHistory = [...history];
 
-    setTasks(prev => {
-      const newTasks = prev.map(t => {
-        if (t.id === id) {
-          const newState = !t.isCompleted;
-          if (newState && soundEnabled) playSound('check');
-          return {
-            ...t,
-            isCompleted: newState,
-            completedAt: newState ? Date.now() : null
-          };
-        }
-        return t;
-      });
-
-      // Check if all tasks are now completed
-      const allCompleted = newTasks.length > 0 && newTasks.every(t => t.isCompleted);
-      const wasAllCompleted = prev.length > 0 && prev.every(t => t.isCompleted);
-      
-      if (allCompleted && !wasAllCompleted) {
-        justFinishedAll = true;
+    // Calculate new state
+    newTasks = newTasks.map(t => {
+      if (t.id === id) {
+        const newState = !t.isCompleted;
+        if (newState && soundEnabled) playSound('check');
+        return {
+          ...t,
+          isCompleted: newState,
+          completedAt: newState ? Date.now() : null
+        };
       }
-
-      return newTasks;
+      return t;
     });
+
+    // Check if all tasks are now completed
+    const allCompleted = newTasks.length > 0 && newTasks.every(t => t.isCompleted);
+    const wasAllCompleted = prevTasks.length > 0 && prevTasks.every(t => t.isCompleted);
+    
+    if (allCompleted && !wasAllCompleted) {
+      justFinishedAll = true;
+    }
+
+    // Recalculate History (required because tasks changed)
+    const todayStr = getToday();
+    const completedCount = newTasks.filter(t => t.isCompleted).length;
+    
+    const index = newHistory.findIndex(h => h.date === todayStr);
+    if (index >= 0) {
+      newHistory[index] = { ...newHistory[index], completedCount, totalTasksAtEnd: newTasks.length };
+    } else {
+      newHistory.push({ date: todayStr, completedCount, totalTasksAtEnd: newTasks.length });
+    }
+
+    // 1. Optimistic Update
+    setTasks(newTasks);
+    setHistory(newHistory);
 
     if (justFinishedAll) {
       setTimeout(() => {
@@ -399,24 +466,31 @@ function App() {
         setShowCongrats(true);
       }, 300);
     }
+
+    // 2. Persist
+    try {
+      await persistData(newTasks, newHistory);
+    } catch (error) {
+      // 3. Rollback on Failure
+      console.error("Sync error, rolling back");
+      setTasks(prevTasks);
+      setHistory(prevHistory);
+      addToast("Connection failed. Action reverted.", "error");
+    }
   };
 
-  // Sync History whenever tasks change
-  useEffect(() => {
-    const todayStr = getToday();
-    const completedCount = tasks.filter(t => t.isCompleted).length;
-    
-    setHistory(prev => {
-      const index = prev.findIndex(h => h.date === todayStr);
-      if (index >= 0) {
-        const updated = [...prev];
-        updated[index] = { ...updated[index], completedCount, totalTasksAtEnd: tasks.length };
-        return updated;
-      } else {
-        return [...prev, { date: todayStr, completedCount, totalTasksAtEnd: tasks.length }];
-      }
-    });
-  }, [tasks]);
+  // Handle Sortable Change (Reorder)
+  const handleSortEnd = async () => {
+    // tasks array is already mutated by ReactSortable
+    // We just need to persist the new order
+    try {
+      await persistData(tasks, history);
+    } catch (error) {
+      addToast("Failed to save order", "error");
+      // Rolling back sort is tricky without a specific previous snapshot stored before sort start, 
+      // but for reordering, silent failure is often acceptable or we could force a reload.
+    }
+  };
 
   // Auth Handlers
   const handleLoginSuccess = (user: any) => {
@@ -432,12 +506,14 @@ function App() {
     if (user.data && (user.data.tasks.length > 0 || user.data.history.length > 0)) {
         applyRemoteData(user.data);
     } else {
+        // If user has no remote data but has local data, sync up
         if (tasks.length > 0) {
-            syncDataToServer(tasks, history);
+            persistData(tasks, history);
         }
     }
     
     if (soundEnabled) playSound('complete');
+    addToast(t.authenticating.replace('...', ' Success'), 'success');
   };
 
   const handleLogout = async () => {
@@ -447,6 +523,9 @@ function App() {
       setUserEmail(null);
       setUsername(null);
       if (soundEnabled) playSound('click');
+      setTasks(INITIAL_STATE.tasks);
+      setHistory(INITIAL_STATE.history);
+      addToast(t.logout, 'info');
     } catch (e) {
       console.error("Logout failed", e);
     }
@@ -515,6 +594,8 @@ function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+      
+      <Toast toasts={toasts} onRemove={removeToast} />
 
       {/* Sidebar */}
       <div 
@@ -658,6 +739,7 @@ function App() {
                   setList={setTasks}
                   animation={200}
                   delay={0}
+                  onEnd={handleSortEnd}
                   ghostClass="sortable-ghost"
                   dragClass="sortable-drag"
                   className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 auto-rows-min pb-24"
