@@ -98,6 +98,12 @@ export interface Translation {
   changesRemaining: string;
   usernameTaken: string;
   usernameInvalid: string;
+
+  // What's New
+  whatsNew: string;
+  version: string;
+  gotIt: string;
+  releaseNotes: string[];
 }
 
 export const translations: Record<LanguageCode, Translation> = {
@@ -171,7 +177,16 @@ export const translations: Record<LanguageCode, Translation> = {
     usernamePlaceholder: 'Enter username',
     changesRemaining: 'changes remaining',
     usernameTaken: 'Username is already taken',
-    usernameInvalid: 'Invalid username (3-20 chars, no spaces)'
+    usernameInvalid: 'Invalid username (3-20 chars, no spaces)',
+    whatsNew: "What's New",
+    version: "Version",
+    gotIt: "Got it!",
+    releaseNotes: [
+      "New Counter Tracks! Keep track of repetitions instead of just checking off.",
+      "History Log: View and manage timestamped entries for counter tracks.",
+      "Updated Settings: Check username availability in real-time.",
+      "Improved performance and sync reliability."
+    ]
   },
   'pt-BR': {
     cancel: 'Cancelar',
@@ -243,7 +258,16 @@ export const translations: Record<LanguageCode, Translation> = {
     usernamePlaceholder: 'Digite o usuário',
     changesRemaining: 'alterações restantes',
     usernameTaken: 'Nome de usuário já existe',
-    usernameInvalid: 'Usuário inválido (3-20 chars, sem espaços)'
+    usernameInvalid: 'Usuário inválido (3-20 chars, sem espaços)',
+    whatsNew: "O que há de novo",
+    version: "Versão",
+    gotIt: "Entendi!",
+    releaseNotes: [
+      "Novas Faixas de Contador! Acompanhe repetições em vez de apenas marcar.",
+      "Histórico de Registros: Visualize e gerencie entradas com data e hora.",
+      "Configurações Atualizadas: Verifique a disponibilidade do nome de usuário em tempo real.",
+      "Melhorias de desempenho e confiabilidade na sincronização."
+    ]
   },
   es: {
     cancel: 'Cancelar',
@@ -315,7 +339,16 @@ export const translations: Record<LanguageCode, Translation> = {
     usernamePlaceholder: 'Ingresa usuario',
     changesRemaining: 'cambios restantes',
     usernameTaken: 'El nombre de usuario ya existe',
-    usernameInvalid: 'Usuario inválido (3-20 carácteres, sin espacios)'
+    usernameInvalid: 'Usuario inválido (3-20 carácteres, sin espacios)',
+    whatsNew: "Novedades",
+    version: "Versión",
+    gotIt: "¡Entendido!",
+    releaseNotes: [
+      "¡Nuevas Pistas de Contador! Realiza un seguimiento de las repeticiones.",
+      "Registro de Historial: Ver y gestionar entradas con fecha y hora.",
+      "Configuración Actualizada: Verificación de disponibilidad de nombre de usuario en tiempo real.",
+      "Mejoras de rendimiento y fiabilidad de sincronización."
+    ]
   },
   fr: {
     cancel: 'Annuler',
@@ -387,7 +420,16 @@ export const translations: Record<LanguageCode, Translation> = {
     usernamePlaceholder: 'Entrez le nom d\'utilisateur',
     changesRemaining: 'changements restants',
     usernameTaken: 'Le nom d\'utilisateur est déjà pris',
-    usernameInvalid: 'Nom d\'utilisateur invalide (3-20 caractères)'
+    usernameInvalid: 'Nom d\'utilisateur invalide (3-20 caractères)',
+    whatsNew: "Quoi de neuf",
+    version: "Version",
+    gotIt: "Compris !",
+    releaseNotes: [
+      "Nouvelles Pistes Compteur ! Suivez les répétitions au lieu de simplement cocher.",
+      "Journal d'Historique : Visualisez et gérez les entrées horodatées.",
+      "Paramètres mis à jour : Vérification de la disponibilité du nom d'utilisateur en temps réel.",
+      "Amélioration des performances et de la fiabilité de la synchronisation."
+    ]
   },
   de: {
     cancel: 'Abbrechen',
@@ -459,6 +501,15 @@ export const translations: Record<LanguageCode, Translation> = {
     usernamePlaceholder: 'Benutzername eingeben',
     changesRemaining: 'Änderungen verbleibend',
     usernameTaken: 'Benutzername ist bereits vergeben',
-    usernameInvalid: 'Ungültiger Benutzername (3-20 Zeichen)'
+    usernameInvalid: 'Ungültiger Benutzername (3-20 Zeichen)',
+    whatsNew: "Was ist neu",
+    version: "Version",
+    gotIt: "Verstanden!",
+    releaseNotes: [
+      "Neue Zähler-Tracks! Verfolge Wiederholungen statt nur abzuhaken.",
+      "Verlaufsprotokoll: Zeitgestempelte Einträge anzeigen und verwalten.",
+      "Aktualisierte Einstellungen: Echtzeit-Überprüfung der Benutzernamen-Verfügbarkeit.",
+      "Verbesserte Leistung und Synchronisierung."
+    ]
   }
 };

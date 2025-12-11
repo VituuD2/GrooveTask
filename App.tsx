@@ -17,6 +17,7 @@ import PadItem from './components/PadItem';
 import StatsPanel from './components/StatsPanel';
 import DeleteModal from './components/DeleteModal';
 import LoginModal from './components/LoginModal';
+import WhatsNewModal from './components/WhatsNewModal';
 import Toast, { ToastMessage, ToastType } from './components/Toast';
 
 // --- Helper Functions ---
@@ -53,6 +54,7 @@ function App() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showCongrats, setShowCongrats] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [isReordering, setIsReordering] = useState(false); // Edit Mode
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -80,7 +82,24 @@ function App() {
 
   // Refs for debouncing and syncing
   const tasksRef = useRef<Task[]>(tasks); // Ref to track tasks for Sortable onEnd
-  const checkUsernameTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const checkUsernameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // --- Check Version for What's New ---
+  useEffect(() => {
+    const lastVersion = localStorage.getItem('groovetask_version');
+    if (lastVersion !== APP_VERSION) {
+       // Small delay to not overwhelm the user if they are also loading data
+       setTimeout(() => {
+         setShowWhatsNew(true);
+       }, 500);
+    }
+  }, []);
+
+  const handleCloseWhatsNew = () => {
+    setShowWhatsNew(false);
+    localStorage.setItem('groovetask_version', APP_VERSION);
+    if (soundEnabled) playSound('click');
+  };
 
   // --- Dynamic Favicon Effect ---
   useEffect(() => {
@@ -542,13 +561,6 @@ function App() {
           }
           return t;
        });
-
-       // Counters also contribute to streak logic? 
-       // For now, let's treat any activity as contribution.
-       // Update history based on total items "engaged" or just keep existing "isCompleted" logic for Simple tracks.
-       // The requirement implies counters just add up.
-       // We won't modify daily stats based on count increments to keep StatsPanel simple for now, 
-       // unless "completedCount" implies tasks with > 0 activity.
        
     } else {
        // --- SIMPLE TRACK LOGIC ---
@@ -1125,6 +1137,13 @@ function App() {
         onClose={() => setShowLoginModal(false)}
         onLoginSuccess={handleLoginSuccess}
         themeColor={theme.hex}
+      />
+
+      {/* What's New Modal */}
+      <WhatsNewModal 
+         isOpen={showWhatsNew}
+         onClose={handleCloseWhatsNew}
+         themeColor={theme.hex}
       />
 
       {/* Studio Settings Modal (Replaces Theme Picker) */}
