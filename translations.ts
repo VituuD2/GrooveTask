@@ -9,6 +9,7 @@ export interface Translation {
   edit: string;
   close: string;
   done: string;
+  saveChanges: string;
   
   // Header
   appName: string;
@@ -88,6 +89,7 @@ export const translations: Record<LanguageCode, Translation> = {
     edit: 'Edit',
     close: 'Close',
     done: 'Done',
+    saveChanges: 'Save Changes',
     appName: 'TASK',
     addTrack: 'Add Track',
     editGrid: 'Edit Grid',
@@ -147,6 +149,7 @@ export const translations: Record<LanguageCode, Translation> = {
     edit: 'Editar',
     close: 'Fechar',
     done: 'Pronto',
+    saveChanges: 'Salvar Alterações',
     appName: 'TAREFAS',
     addTrack: 'Adicionar',
     editGrid: 'Organizar',
@@ -206,6 +209,7 @@ export const translations: Record<LanguageCode, Translation> = {
     edit: 'Editar',
     close: 'Cerrar',
     done: 'Hecho',
+    saveChanges: 'Guardar Cambios',
     appName: 'TAREAS',
     addTrack: 'Añadir',
     editGrid: 'Organizar',
@@ -265,6 +269,7 @@ export const translations: Record<LanguageCode, Translation> = {
     edit: 'Modifier',
     close: 'Fermer',
     done: 'Terminé',
+    saveChanges: 'Sauvegarder',
     appName: 'TÂCHES',
     addTrack: 'Ajouter',
     editGrid: 'Organiser',
@@ -324,6 +329,7 @@ export const translations: Record<LanguageCode, Translation> = {
     edit: 'Bearbeiten',
     close: 'Schließen',
     done: 'Fertig',
+    saveChanges: 'Änderungen speichern',
     appName: 'AUFGABEN',
     addTrack: 'Hinzufügen',
     editGrid: 'Ordnen',

@@ -35,8 +35,8 @@ const PadItem: React.FC<PadItemProps> = ({
     <div 
       data-index={index}
       className={`
-        pad-item relative group aspect-square rounded-2xl transition-all duration-200 ease-out
-        flex flex-col justify-between p-4 overflow-hidden border-2 select-none
+        pad-item relative group aspect-square rounded-xl transition-all duration-200 ease-out
+        flex flex-col justify-between p-3 overflow-hidden border-2 select-none
         ${isReordering ? 'cursor-move edit-mode-shake' : 'cursor-pointer'}
         ${task.isCompleted 
           ? 'bg-zinc-900 scale-[0.98]' 
@@ -59,33 +59,33 @@ const PadItem: React.FC<PadItemProps> = ({
       {/* Edit Mode Overlay Icon */}
       {isReordering && (
          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
-             <Move size={32} className="text-white opacity-80" />
+             <Move size={28} className="text-white opacity-80" />
          </div>
       )}
 
       {/* Order Badge */}
-      <div className="absolute top-4 right-4 text-xs font-bold text-zinc-600 bg-zinc-900/50 px-2 py-0.5 rounded-full z-0 group-hover:opacity-0 transition-opacity">
+      <div className="absolute top-3 right-3 text-[10px] font-bold text-zinc-600 bg-zinc-900/50 px-1.5 py-0.5 rounded-full z-0 group-hover:opacity-0 transition-opacity">
         #{index + 1}
       </div>
 
       {/* Content */}
       <div className="mt-auto z-10 relative pointer-events-none">
          <div className="flex items-end justify-between gap-2">
-            <h3 className={`font-bold text-lg leading-tight line-clamp-3 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
+            <h3 className={`font-bold text-sm leading-tight line-clamp-3 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
                {task.title}
             </h3>
             
             <div 
-              className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border transition-all ${task.isCompleted ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/50 border-zinc-700'}`}
+              className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center border transition-all ${task.isCompleted ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/50 border-zinc-700'}`}
               style={{ borderColor: task.isCompleted ? themeColor : undefined, color: task.isCompleted ? themeColor : '#71717a' }}
             >
-              {task.isCompleted ? <Check size={16} strokeWidth={3} /> : <Play size={14} fill="currentColor" className="ml-0.5" />}
+              {task.isCompleted ? <Check size={14} strokeWidth={3} /> : <Play size={12} fill="currentColor" className="ml-0.5" />}
             </div>
          </div>
          {task.description && (
             <div className="mt-1 flex items-center gap-1">
                <div className="h-1 w-1 rounded-full bg-zinc-600" />
-               <span className="text-[10px] text-zinc-500 font-medium truncate max-w-full">{t.viewDetails}</span>
+               <span className="text-[9px] text-zinc-500 font-medium truncate max-w-full">{t.viewDetails}</span>
             </div>
          )}
       </div>
@@ -97,31 +97,31 @@ const PadItem: React.FC<PadItemProps> = ({
              e.stopPropagation();
              setShowMenu(!showMenu);
           }}
-          className="action-btn absolute top-2 right-2 p-2 text-zinc-600 hover:text-white rounded-lg hover:bg-zinc-700/50 opacity-0 group-hover:opacity-100 transition-all z-20"
+          className="action-btn absolute top-1 right-1 p-2 text-zinc-600 hover:text-white rounded-lg hover:bg-zinc-700/50 opacity-0 group-hover:opacity-100 transition-all z-20"
         >
-          <MoreVertical size={16} />
+          <MoreVertical size={14} />
         </button>
       )}
 
       {/* Menu Dropdown */}
       {showMenu && !isReordering && (
-        <div className="menu-container absolute top-10 right-2 w-32 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl z-30 overflow-hidden animate-in fade-in zoom-in-95 duration-100" onClick={e => e.stopPropagation()}>
+        <div className="menu-container absolute top-8 right-2 w-28 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl z-30 overflow-hidden animate-in fade-in zoom-in-95 duration-100" onClick={e => e.stopPropagation()}>
            <button 
              onClick={() => { setShowMenu(false); onViewInfo(task); }}
-             className="w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white flex items-center gap-2"
+             className="w-full text-left px-3 py-2 text-[10px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white flex items-center gap-2"
            >
              <Info size={12} /> {t.viewDetails}
            </button>
            <button 
              onClick={() => { setShowMenu(false); onEdit(task); }}
-             className="w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white flex items-center gap-2"
+             className="w-full text-left px-3 py-2 text-[10px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white flex items-center gap-2"
            >
              <span className="w-3 h-3 flex items-center justify-center border border-zinc-500 rounded-[2px] text-[8px]">E</span> {t.edit}
            </button>
            <div className="h-px bg-zinc-800 my-1" />
            <button 
              onClick={() => { setShowMenu(false); onDelete(task.id); }}
-             className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-900/20 hover:text-red-300 flex items-center gap-2"
+             className="w-full text-left px-3 py-2 text-[10px] font-medium text-red-400 hover:bg-red-900/20 hover:text-red-300 flex items-center gap-2"
            >
              <X size={12} /> {t.delete}
            </button>

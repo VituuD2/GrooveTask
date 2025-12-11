@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid, Save } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 // Fix for "does not provide an export named 'ReactSortable'" error
 import ReactSortablePkg from 'react-sortablejs';
@@ -51,6 +51,11 @@ function App() {
   const [showCongrats, setShowCongrats] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isReordering, setIsReordering] = useState(false); // Edit Mode
+
+  // Settings Temporary State (for the Save button logic)
+  const [tempTheme, setTempTheme] = useState<ThemeColor>(THEME_COLORS[0]);
+  const [tempSound, setTempSound] = useState(true);
+  const [tempLanguage, setTempLanguage] = useState<LanguageCode>('en');
 
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -239,6 +244,22 @@ function App() {
   }, [theme, soundEnabled, language, isLoggedIn]);
 
   // --- Event Handlers ---
+
+  const handleOpenSettings = () => {
+    // Initialize temp state with current state
+    setTempTheme(theme);
+    setTempSound(soundEnabled);
+    setTempLanguage(language);
+    setShowSettingsModal(true);
+  };
+
+  const handleSaveSettings = () => {
+    // Commit temp state to real state
+    setTheme(tempTheme);
+    setSoundEnabled(tempSound);
+    setLanguage(tempLanguage);
+    setShowSettingsModal(false);
+  };
 
   const handleCreateTask = () => {
     if (!formTitle.trim()) return;
@@ -455,7 +476,7 @@ function App() {
               </button>
 
               <div className="mt-auto flex flex-col gap-4 mb-4 pointer-events-auto">
-                 <button onClick={() => setShowSettingsModal(!showSettingsModal)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+                 <button onClick={handleOpenSettings} className="p-2 text-zinc-500 hover:text-white transition-colors">
                     <Settings size={24} />
                  </button>
                  <button onClick={() => setSoundEnabled(!soundEnabled)} className="p-2 text-zinc-500 hover:text-white transition-colors">
@@ -576,7 +597,7 @@ function App() {
                   delay={0}
                   ghostClass="sortable-ghost"
                   dragClass="sortable-drag"
-                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24"
+                  className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 auto-rows-min pb-24"
                 >
                   {tasks.map((task, index) => (
                     <PadItem 
@@ -594,7 +615,7 @@ function App() {
                   ))}
                 </ReactSortable>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
+                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 auto-rows-min pb-24">
                   {tasks.map((task, index) => (
                     <PadItem 
                       key={task.id} 
@@ -613,10 +634,10 @@ function App() {
                   <button 
                     key="create-btn"
                     onClick={openCreateModal}
-                    className="static-btn aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
+                    className="static-btn aspect-square rounded-xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
                   >
-                    <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
-                    <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">{t.create}</span>
+                    <Plus size={24} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
+                    <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors text-xs">{t.create}</span>
                   </button>
                 </div>
               )}
@@ -747,11 +768,11 @@ function App() {
                  {(Object.keys(LANGUAGE_NAMES) as LanguageCode[]).map((code) => (
                    <button
                      key={code}
-                     onClick={() => setLanguage(code)}
-                     className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${language === code ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-800/50 border border-transparent'}`}
+                     onClick={() => setTempLanguage(code)}
+                     className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${tempLanguage === code ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-800/50 border border-transparent'}`}
                    >
                      <span className="text-sm text-zinc-300">{LANGUAGE_NAMES[code]}</span>
-                     {language === code && <Check size={16} style={{ color: theme.hex }} />}
+                     {tempLanguage === code && <Check size={16} style={{ color: tempTheme.hex }} />}
                    </button>
                  ))}
                </div>
@@ -766,8 +787,8 @@ function App() {
                     {THEME_COLORS.map(c => (
                       <button
                         key={c.id}
-                        onClick={() => setTheme(c)}
-                        className={`flex flex-col items-center gap-2 p-3 rounded-xl transition-all border ${theme.id === c.id ? 'bg-zinc-800 border-zinc-600' : 'border-zinc-800 hover:bg-zinc-800'}`}
+                        onClick={() => setTempTheme(c)}
+                        className={`flex flex-col items-center gap-2 p-3 rounded-xl transition-all border ${tempTheme.id === c.id ? 'bg-zinc-800 border-zinc-600' : 'border-zinc-800 hover:bg-zinc-800'}`}
                       >
                         <div className="w-8 h-8 rounded-full shadow-lg" style={{ backgroundColor: c.hex, boxShadow: `0 0 10px ${c.shadow}` }} />
                         <span className="text-[10px] font-medium text-zinc-400">{c.name}</span>
@@ -777,20 +798,30 @@ function App() {
              </div>
 
              {/* Sound Section */}
-             <div>
+             <div className="mb-8">
                 <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                    <Volume2 size={14} /> {t.soundEffects}
                 </h3>
                 <button 
-                  onClick={() => setSoundEnabled(!soundEnabled)}
-                  className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${soundEnabled ? 'bg-zinc-800 border-zinc-600' : 'bg-zinc-950 border-zinc-800'}`}
+                  onClick={() => setTempSound(!tempSound)}
+                  className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all ${tempSound ? 'bg-zinc-800 border-zinc-600' : 'bg-zinc-950 border-zinc-800'}`}
                 >
-                  <span className="text-sm text-zinc-300">{soundEnabled ? 'On' : 'Off'}</span>
-                  <div className={`w-10 h-6 rounded-full relative transition-colors ${soundEnabled ? 'bg-green-500/20' : 'bg-zinc-700'}`}>
-                     <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${soundEnabled ? 'left-5 bg-green-500' : 'left-1'}`} />
+                  <span className="text-sm text-zinc-300">{tempSound ? 'On' : 'Off'}</span>
+                  <div className={`w-10 h-6 rounded-full relative transition-colors ${tempSound ? 'bg-green-500/20' : 'bg-zinc-700'}`}>
+                     <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${tempSound ? 'left-5 bg-green-500' : 'left-1'}`} />
                   </div>
                 </button>
              </div>
+
+             {/* Save Button */}
+             <button
+                onClick={handleSaveSettings}
+                className="w-full py-3 rounded-xl font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                style={{ backgroundColor: tempTheme.hex, boxShadow: `0 4px 14px ${tempTheme.shadow}` }}
+              >
+                <Save size={18} />
+                {t.saveChanges}
+              </button>
 
            </div>
         </div>
