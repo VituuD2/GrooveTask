@@ -198,7 +198,7 @@ function App() {
     return () => {
       sortableRef.current?.destroy();
     };
-  }, [soundEnabled]); // Re-init if sound setting changes (minor opt, mostly to access current soundEnabled val)
+  }, [soundEnabled]);
 
 
   // --- Data Logic Helpers ---
