@@ -77,6 +77,7 @@ function App() {
   // Refs for debouncing and syncing
   const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRemoteUpdate = useRef(false);
+  const tasksRef = useRef<Task[]>(tasks); // Ref to track tasks for Sortable onEnd
 
   // --- Dynamic Favicon Effect ---
   useEffect(() => {
@@ -184,6 +185,11 @@ function App() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
+
+  // Update ref whenever tasks change
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   // --- Data Logic Helpers ---
   
@@ -500,12 +506,19 @@ function App() {
     }
   };
 
+  // Wrapper for Sortable setList to keep ref in sync immediately
+  const handleSetList = (newList: Task[]) => {
+     setTasks(newList);
+     tasksRef.current = newList;
+  };
+
   // Handle Sortable Change (Reorder)
   const handleSortEnd = async () => {
-    // tasks array is already mutated by ReactSortable
-    // We just need to persist the new order (only order)
+    // Use the REF current value, which contains the latest order from handleSetList
+    const orderedTasks = tasksRef.current;
+    
     try {
-      await persistOrderOnly(tasks);
+      await persistOrderOnly(orderedTasks);
     } catch (error) {
       addToast("Failed to save order", "error");
     }
@@ -755,7 +768,7 @@ function App() {
               {isReordering ? (
                 <ReactSortable
                   list={tasks}
-                  setList={setTasks}
+                  setList={handleSetList}
                   animation={200}
                   delay={0}
                   onEnd={handleSortEnd}
