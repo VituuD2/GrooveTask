@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MoreVertical, Info, Check, Play, X, GripVertical } from 'lucide-react';
+import { MoreVertical, Info, Check, Play, X, GripVertical, Move } from 'lucide-react';
 import { Task } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -13,6 +13,7 @@ interface PadItemProps {
   onDelete: (id: string) => void;
   onViewInfo: (task: Task) => void;
   style?: React.CSSProperties;
+  isReordering?: boolean; // New prop
 }
 
 const PadItem: React.FC<PadItemProps> = ({
@@ -24,7 +25,8 @@ const PadItem: React.FC<PadItemProps> = ({
   onEdit,
   onDelete,
   onViewInfo,
-  style = {}
+  style = {},
+  isReordering = false
 }) => {
   const { t } = useLanguage();
   const [showMenu, setShowMenu] = useState(false);
@@ -33,37 +35,37 @@ const PadItem: React.FC<PadItemProps> = ({
     <div 
       data-index={index}
       className={`
-        pad-item relative group aspect-square rounded-2xl transition-transform duration-200 ease-out
-        flex flex-col justify-between p-4 cursor-pointer overflow-hidden
-        border-2 select-none
+        pad-item relative group aspect-square rounded-2xl transition-all duration-200 ease-out
+        flex flex-col justify-between p-4 overflow-hidden border-2 select-none
+        ${isReordering ? 'cursor-move edit-mode-shake' : 'cursor-pointer'}
         ${task.isCompleted 
           ? 'bg-zinc-900 scale-[0.98]' 
-          : 'bg-zinc-800 hover:bg-zinc-750 hover:-translate-y-1 hover:shadow-xl'
+          : 'bg-zinc-800 hover:bg-zinc-750'
         }
+        ${!isReordering && !task.isCompleted ? 'hover:-translate-y-1 hover:shadow-xl' : ''}
       `}
       style={{
-        borderColor: task.isCompleted ? themeColor : 'transparent',
+        borderColor: task.isCompleted ? themeColor : isReordering ? '#52525b' : 'transparent',
         boxShadow: task.isCompleted ? `0 0 20px ${themeShadow}` : 'none',
         ...style
       }}
       onClick={(e) => {
+        if (isReordering) return; // Disable toggle in edit mode
         if ((e.target as HTMLElement).closest('.action-btn')) return;
         if ((e.target as HTMLElement).closest('.menu-container')) return;
-        if ((e.target as HTMLElement).closest('.drag-handle')) return;
         onToggle(task.id);
       }}
     >
+      {/* Edit Mode Overlay Icon */}
+      {isReordering && (
+         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
+             <Move size={32} className="text-white opacity-80" />
+         </div>
+      )}
+
       {/* Order Badge */}
       <div className="absolute top-4 right-4 text-xs font-bold text-zinc-600 bg-zinc-900/50 px-2 py-0.5 rounded-full z-0 group-hover:opacity-0 transition-opacity">
         #{index + 1}
-      </div>
-
-      {/* Drag Grip Handle - Always visible or enhanced for touch */}
-      <div 
-        className="drag-handle absolute top-4 left-4 p-2 -ml-2 -mt-2 text-zinc-500 hover:text-zinc-300 cursor-grab active:cursor-grabbing z-20"
-        title="Drag to reorder"
-      >
-         <GripVertical size={20} />
       </div>
 
       {/* Content */}
@@ -88,19 +90,21 @@ const PadItem: React.FC<PadItemProps> = ({
          )}
       </div>
 
-      {/* Menu Button */}
-      <button 
-        onClick={(e) => {
-           e.stopPropagation();
-           setShowMenu(!showMenu);
-        }}
-        className="action-btn absolute top-2 right-2 p-2 text-zinc-600 hover:text-white rounded-lg hover:bg-zinc-700/50 opacity-0 group-hover:opacity-100 transition-all z-20"
-      >
-        <MoreVertical size={16} />
-      </button>
+      {/* Menu Button - Only show if not reordering */}
+      {!isReordering && (
+        <button 
+          onClick={(e) => {
+             e.stopPropagation();
+             setShowMenu(!showMenu);
+          }}
+          className="action-btn absolute top-2 right-2 p-2 text-zinc-600 hover:text-white rounded-lg hover:bg-zinc-700/50 opacity-0 group-hover:opacity-100 transition-all z-20"
+        >
+          <MoreVertical size={16} />
+        </button>
+      )}
 
       {/* Menu Dropdown */}
-      {showMenu && (
+      {showMenu && !isReordering && (
         <div className="menu-container absolute top-10 right-2 w-32 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl z-30 overflow-hidden animate-in fade-in zoom-in-95 duration-100" onClick={e => e.stopPropagation()}>
            <button 
              onClick={() => { setShowMenu(false); onViewInfo(task); }}

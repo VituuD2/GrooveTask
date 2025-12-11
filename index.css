@@ -37,6 +37,20 @@ body {
   z-index: 9999;
 }
 
+/* Edit Mode Animation */
+@keyframes shake {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(1deg); }
+  50% { transform: rotate(0deg); }
+  75% { transform: rotate(-1deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.edit-mode-shake {
+  animation: shake 0.3s infinite ease-in-out;
+  cursor: move !important;
+}
+
 /* Fallback for touch action */
 .pad-item {
   touch-action: pan-y; /* Allow scrolling on pad items unless grabbing handle */

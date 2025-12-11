@@ -8,10 +8,12 @@ export interface Translation {
   delete: string;
   edit: string;
   close: string;
+  done: string;
   
   // Header
   appName: string;
   addTrack: string;
+  editGrid: string;
   
   // Sidebar
   performance: string;
@@ -85,8 +87,10 @@ export const translations: Record<LanguageCode, Translation> = {
     delete: 'Delete',
     edit: 'Edit',
     close: 'Close',
+    done: 'Done',
     appName: 'TASK',
     addTrack: 'Add Track',
+    editGrid: 'Edit Grid',
     performance: 'Performance',
     dailyGroove: 'Your daily groove statistics.',
     currentStreak: 'Current Streak',
@@ -142,8 +146,10 @@ export const translations: Record<LanguageCode, Translation> = {
     delete: 'Excluir',
     edit: 'Editar',
     close: 'Fechar',
+    done: 'Pronto',
     appName: 'TAREFAS',
-    addTrack: 'Adicionar Faixa',
+    addTrack: 'Adicionar',
+    editGrid: 'Organizar',
     performance: 'Desempenho',
     dailyGroove: 'Suas estatísticas diárias.',
     currentStreak: 'Sequência Atual',
@@ -199,8 +205,10 @@ export const translations: Record<LanguageCode, Translation> = {
     delete: 'Eliminar',
     edit: 'Editar',
     close: 'Cerrar',
+    done: 'Hecho',
     appName: 'TAREAS',
-    addTrack: 'Añadir Pista',
+    addTrack: 'Añadir',
+    editGrid: 'Organizar',
     performance: 'Rendimiento',
     dailyGroove: 'Tus estadísticas diarias.',
     currentStreak: 'Racha Actual',
@@ -256,8 +264,10 @@ export const translations: Record<LanguageCode, Translation> = {
     delete: 'Supprimer',
     edit: 'Modifier',
     close: 'Fermer',
+    done: 'Terminé',
     appName: 'TÂCHES',
-    addTrack: 'Ajouter Piste',
+    addTrack: 'Ajouter',
+    editGrid: 'Organiser',
     performance: 'Performance',
     dailyGroove: 'Vos statistiques quotidiennes.',
     currentStreak: 'Série Actuelle',
@@ -313,8 +323,10 @@ export const translations: Record<LanguageCode, Translation> = {
     delete: 'Löschen',
     edit: 'Bearbeiten',
     close: 'Schließen',
+    done: 'Fertig',
     appName: 'AUFGABEN',
-    addTrack: 'Track hinzufügen',
+    addTrack: 'Hinzufügen',
+    editGrid: 'Ordnen',
     performance: 'Leistung',
     dailyGroove: 'Deine täglichen Groove-Statistiken.',
     currentStreak: 'Aktuelle Serie',

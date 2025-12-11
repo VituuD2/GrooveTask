@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check, LayoutGrid } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import Sortable from 'sortablejs';
+// Fix for "does not provide an export named 'ReactSortable'" error
+import ReactSortablePkg from 'react-sortablejs';
+
+// Handle both CJS (default export with properties) and ESM (named exports or default component) scenarios
+const ReactSortable = (ReactSortablePkg as any).ReactSortable || ReactSortablePkg;
 
 import { Task, AppState, DailyStat, ThemeColor } from './types';
 import { THEME_COLORS, STORAGE_KEY, THEME_KEY, APP_VERSION } from './constants';
@@ -46,11 +50,7 @@ function App() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showCongrats, setShowCongrats] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-
-  // Refs
-  const gridRef = useRef<HTMLDivElement>(null);
-  const sortableRef = useRef<Sortable | null>(null);
-  const justReorderedRef = useRef(false);
+  const [isReordering, setIsReordering] = useState(false); // Edit Mode
 
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -158,48 +158,6 @@ function App() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
-
-  // --- SortableJS Logic ---
-  useEffect(() => {
-    if (!gridRef.current) return;
-
-    sortableRef.current = Sortable.create(gridRef.current, {
-      animation: 250,
-      handle: '.drag-handle', // Only drag when pulling the handle
-      draggable: '.pad-item', // Only items with this class are draggable
-      filter: '.static-btn', // 'Create' button cannot be dragged
-      ghostClass: 'sortable-ghost',
-      dragClass: 'sortable-drag',
-      delay: 0, 
-      touchStartThreshold: 3, // Slight movement required to start drag
-      onMove: (evt) => {
-        // Prevent swapping with the "Create" button which is marked with static-btn
-        return !evt.related.classList.contains('static-btn');
-      },
-      onEnd: (evt) => {
-        const { oldIndex, newIndex } = evt;
-        if (oldIndex !== undefined && newIndex !== undefined && oldIndex !== newIndex) {
-          justReorderedRef.current = true;
-          setTasks(prev => {
-            const newTasks = [...prev];
-            const [moved] = newTasks.splice(oldIndex, 1);
-            newTasks.splice(newIndex, 0, moved);
-            return newTasks;
-          });
-          
-          if (soundEnabled) playSound('click');
-          
-          // Reset flag after a moment
-          setTimeout(() => { justReorderedRef.current = false; }, 100);
-        }
-      }
-    });
-
-    return () => {
-      sortableRef.current?.destroy();
-    };
-  }, [soundEnabled]);
-
 
   // --- Data Logic Helpers ---
   
@@ -323,8 +281,8 @@ function App() {
   };
 
   const handleToggleTask = (id: string) => {
-    // Avoid toggling immediately after a reorder event
-    if (justReorderedRef.current) return;
+    // Prevent toggling while reordering
+    if (isReordering) return;
 
     const today = getToday();
     let justFinishedAll = false;
@@ -571,13 +529,31 @@ function App() {
               GROOVE<span style={{ color: theme.hex }}>{t.appName}</span>
             </h1>
           </div>
-          <button 
-            onClick={openCreateModal}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-900 rounded-full font-semibold hover:bg-white hover:scale-105 transition-all shadow-lg shadow-zinc-500/10"
-          >
-            <Plus size={18} />
-            <span className="hidden sm:inline">{t.addTrack}</span>
-          </button>
+          <div className="flex gap-2">
+            {/* Edit Grid Toggle Button */}
+            <button 
+                onClick={() => setIsReordering(!isReordering)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all border ${
+                  isReordering 
+                    ? 'bg-zinc-800 text-white border-zinc-600' 
+                    : 'bg-zinc-900/50 text-zinc-400 border-zinc-800 hover:text-white hover:bg-zinc-900'
+                }`}
+              >
+                {isReordering ? <Check size={18} /> : <LayoutGrid size={18} />}
+                <span className="hidden sm:inline">{isReordering ? t.done : t.editGrid}</span>
+              </button>
+
+            <button 
+              onClick={openCreateModal}
+              disabled={isReordering}
+              className={`flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-900 rounded-full font-semibold transition-all shadow-lg shadow-zinc-500/10 ${
+                isReordering ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white hover:scale-105'
+              }`}
+            >
+              <Plus size={18} />
+              <span className="hidden sm:inline">{t.addTrack}</span>
+            </button>
+          </div>
         </header>
 
         {/* Grid Area */}
@@ -591,7 +567,16 @@ function App() {
               <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">{t.createOne}</button>
             </div>
           ) : (
-            <div ref={gridRef} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
+            <ReactSortable
+              list={tasks}
+              setList={setTasks}
+              animation={200}
+              delay={0}
+              disabled={!isReordering} // Only enable drag in Reorder mode
+              ghostClass="sortable-ghost"
+              dragClass="sortable-drag"
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24"
+            >
               {tasks.map((task, index) => (
                 <PadItem 
                   key={task.id} 
@@ -603,17 +588,21 @@ function App() {
                   onEdit={openEditModal}
                   onDelete={handleDeleteRequest}
                   onViewInfo={openInfoModal}
+                  isReordering={isReordering} // Pass edit mode prop
                 />
               ))}
               
-              <button 
-                onClick={openCreateModal}
-                className="static-btn aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
-              >
-                <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
-                <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">{t.create}</span>
-              </button>
-            </div>
+              {!isReordering && (
+                <button 
+                  key="create-btn"
+                  onClick={openCreateModal}
+                  className="static-btn aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
+                >
+                  <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
+                  <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">{t.create}</span>
+                </button>
+              )}
+            </ReactSortable>
           )}
         </main>
       </div>
