@@ -46,6 +46,18 @@ function App() {
   const [showCongrats, setShowCongrats] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   
+  // Drag and Drop State
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [ghostPos, setGhostPos] = useState<{x: number, y: number} | null>(null);
+  const [ghostDimensions, setGhostDimensions] = useState<{width: number, height: number} | null>(null);
+  
+  // Refs for Drag Logic
+  const dragItemRef = useRef<Task | null>(null);
+  const dragStartIndexRef = useRef<number | null>(null);
+  const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDraggingRef = useRef(false);
+  const pointerStartRef = useRef<{x: number, y: number} | null>(null);
+
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   
@@ -58,26 +70,22 @@ function App() {
   const [formDesc, setFormDesc] = useState('');
 
   // Refs for debouncing and syncing
-  const settingsSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const dataSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dataSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRemoteUpdate = useRef(false);
 
   // --- Dynamic Favicon Effect ---
   useEffect(() => {
     const updateFavicon = () => {
-      // Encode the hex color for URL (replace # with %23)
       const encodedColor = encodeURIComponent(theme.hex);
-      
-      // Create SVG string with the theme color
       const svg = `
         <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>
           <rect width='100' height='100' fill='%2318181b' rx='20'/>
           <rect x='25' y='25' width='50' height='50' fill='${encodedColor}' rx='10'/>
           <circle cx='75' cy='25' r='5' fill='%2352525b'/>
         </svg>
-      `.trim().replace(/\s+/g, ' '); // Minimize whitespace
+      `.trim().replace(/\s+/g, ' ');
 
-      // Find existing favicon or create new one
       let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
       if (!link) {
         link = document.createElement('link');
@@ -136,12 +144,10 @@ function App() {
     }
   }, []);
 
-  // Ensure tasks are reset if the app is left open overnight
   useEffect(() => {
     const handleFocus = () => {
       const today = getToday();
       setTasks(currentTasks => {
-        // Check if any task is completed but has an old date
         const needsReset = currentTasks.some(t => t.isCompleted && t.lastCompletedDate !== today);
         if (needsReset) {
           return currentTasks.map(t => {
@@ -158,6 +164,129 @@ function App() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
+
+  // --- Drag and Drop Logic ---
+  
+  const handlePointerDown = (e: React.PointerEvent, task: Task, index: number) => {
+    // Ignore if clicking a button inside
+    if ((e.target as HTMLElement).closest('button')) return;
+    
+    // Setup initial refs
+    dragItemRef.current = task;
+    dragStartIndexRef.current = index;
+    isDraggingRef.current = false;
+    pointerStartRef.current = { x: e.clientX, y: e.clientY };
+    
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    
+    // Function to start drag (called immediately for mouse, or after timeout for touch)
+    const startDrag = () => {
+      isDraggingRef.current = true;
+      setDraggingIndex(index);
+      setGhostDimensions({ width: rect.width, height: rect.height });
+      setGhostPos({ x: e.clientX - rect.width/2, y: e.clientY - rect.height/2 });
+      if (navigator.vibrate) navigator.vibrate(50); // Haptic feedback
+    };
+
+    if (e.pointerType === 'mouse') {
+      // Mouse drags immediately if moved, but we wait for move event to confirm intent
+      // We don't block click yet
+    } else {
+      // Touch requires long press to avoid scrolling conflict
+      longPressTimeoutRef.current = setTimeout(startDrag, 400);
+    }
+  };
+
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!pointerStartRef.current) return;
+
+      const dx = e.clientX - pointerStartRef.current.x;
+      const dy = e.clientY - pointerStartRef.current.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      // Cancel long press if moved significantly before timeout triggers
+      if (longPressTimeoutRef.current && dist > 10) {
+        clearTimeout(longPressTimeoutRef.current);
+        longPressTimeoutRef.current = null;
+      }
+
+      // If dragging hasn't started yet for mouse, start it after threshold
+      if (e.pointerType === 'mouse' && !isDraggingRef.current && dist > 5 && dragItemRef.current) {
+        isDraggingRef.current = true;
+        setDraggingIndex(dragStartIndexRef.current);
+        const el = document.querySelector(`[data-index="${dragStartIndexRef.current}"]`);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          setGhostDimensions({ width: rect.width, height: rect.height });
+        }
+      }
+
+      if (isDraggingRef.current && ghostDimensions) {
+        e.preventDefault(); // Prevent scrolling
+        setGhostPos({ 
+          x: e.clientX - ghostDimensions.width / 2, 
+          y: e.clientY - ghostDimensions.height / 2 
+        });
+
+        // Hit test
+        const elements = document.elementsFromPoint(e.clientX, e.clientY);
+        const padItem = elements.find(el => el.classList.contains('pad-item'));
+        
+        if (padItem) {
+          const hoverIndexStr = padItem.getAttribute('data-index');
+          if (hoverIndexStr) {
+            const hoverIndex = parseInt(hoverIndexStr, 10);
+            const currentIndex = dragStartIndexRef.current; // This ref needs to be up to date with state? 
+            
+            // Actually, we need to compare with the CURRENT index of the dragged item
+            // Since we update state, we need to know where our item is NOW.
+            
+            if (currentIndex !== null && hoverIndex !== currentIndex) {
+              // Reorder
+              setTasks(prev => {
+                const newTasks = [...prev];
+                const [moved] = newTasks.splice(currentIndex, 1);
+                newTasks.splice(hoverIndex, 0, moved);
+                return newTasks;
+              });
+              // Update ref to new index so we don't swap repeatedly
+              dragStartIndexRef.current = hoverIndex;
+              setDraggingIndex(hoverIndex);
+            }
+          }
+        }
+      }
+    };
+
+    const handlePointerUp = () => {
+      if (longPressTimeoutRef.current) {
+        clearTimeout(longPressTimeoutRef.current);
+      }
+      
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        setDraggingIndex(null);
+        setGhostPos(null);
+        if (soundEnabled) playSound('click'); // Drop sound
+      }
+
+      dragItemRef.current = null;
+      dragStartIndexRef.current = null;
+      pointerStartRef.current = null;
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [ghostDimensions, soundEnabled]); // Dependencies
 
   // --- Data Logic Helpers ---
   
@@ -281,6 +410,9 @@ function App() {
   };
 
   const handleToggleTask = (id: string) => {
+    // If we were just dragging, do not toggle
+    if (isDraggingRef.current) return;
+
     const today = getToday();
     let justFinishedAll = false;
 
@@ -429,6 +561,28 @@ function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
       
+      {/* Ghost Item for Dragging */}
+      {draggingIndex !== null && ghostPos && tasks[draggingIndex] && (
+        <PadItem 
+          task={tasks[draggingIndex]}
+          index={draggingIndex} // The index number visual remains static for the ghost
+          themeColor={theme.hex}
+          themeShadow={theme.shadow}
+          onToggle={() => {}} 
+          onEdit={() => {}} 
+          onDelete={() => {}} 
+          onViewInfo={() => {}} 
+          onPointerDown={() => {}}
+          isGhost={true}
+          style={{
+            top: ghostPos.y,
+            left: ghostPos.x,
+            width: ghostDimensions?.width,
+            height: ghostDimensions?.height
+          }}
+        />
+      )}
+
       {/* Sidebar */}
       <div 
         className={`fixed inset-y-0 left-0 z-40 transform transition-transform duration-300 ease-in-out ${isStatsOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 md:static md:w-16 hover:md:w-80 group shadow-2xl`}
@@ -532,7 +686,7 @@ function App() {
         </header>
 
         {/* Grid Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 touch-pan-y">
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-zinc-600 space-y-4">
               <div className="w-24 h-24 border-2 border-dashed border-zinc-800 rounded-2xl flex items-center justify-center">
@@ -543,9 +697,10 @@ function App() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
-              {tasks.map(task => (
+              {tasks.map((task, index) => (
                 <PadItem 
                   key={task.id} 
+                  index={index}
                   task={task} 
                   themeColor={theme.hex} 
                   themeShadow={theme.shadow}
@@ -553,6 +708,8 @@ function App() {
                   onEdit={openEditModal}
                   onDelete={handleDeleteRequest}
                   onViewInfo={openInfoModal}
+                  onPointerDown={handlePointerDown}
+                  isDragging={draggingIndex === index}
                 />
               ))}
               

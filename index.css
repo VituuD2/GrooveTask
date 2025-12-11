@@ -22,3 +22,14 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #71717a; 
 }
+
+/* Drag and Drop Ghost */
+.ghost-item {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.9;
+  transform-origin: center center;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  touch-action: none;
+}
