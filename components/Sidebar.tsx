@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import useSWR from 'swr';
-import { LayoutGrid, Users, Plus, Hash } from 'lucide-react';
-import { Group } from '../types';
+import { LayoutGrid, Users, Plus, Hash, Settings, Activity, LogOut, User } from 'lucide-react';
+import { Group, UserProfile } from '../types';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
@@ -10,20 +11,38 @@ interface SidebarProps {
   activeGroupId: string | null;
   onNavigate: (view: 'personal' | 'group', groupId?: string) => void;
   onCreateGroup: () => void;
+  onOpenSettings: () => void;
+  onOpenStats: () => void;
+  onLogout: () => void;
+  onLogin: () => void;
+  currentUser: UserProfile | null;
   themeColor: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, activeGroupId, onNavigate, onCreateGroup, themeColor }) => {
+const Sidebar: React.FC<SidebarProps> = ({ 
+  currentView, 
+  activeGroupId, 
+  onNavigate, 
+  onCreateGroup, 
+  onOpenSettings,
+  onOpenStats,
+  onLogout,
+  onLogin,
+  currentUser,
+  themeColor 
+}) => {
   const { data: groups } = useSWR<Group[]>('/api/groups', fetcher);
+  const { t } = useLanguage();
 
   return (
-    <div className="w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full shrink-0 hidden md:flex">
+    <div className="w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full shrink-0">
       <div className="p-6">
         <h1 className="text-2xl font-bold tracking-tighter text-white">
           GROOVE<span style={{ color: themeColor }}>TASK</span>
         </h1>
       </div>
 
+      {/* Navigation Links */}
       <div className="flex-1 px-4 space-y-6 overflow-y-auto">
         <div>
           <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2 px-2">Workspace</h3>
@@ -34,7 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, activeGroupId, onNavigat
             }`}
           >
             <LayoutGrid size={18} />
-            My Board
+            {t.appName}
           </button>
         </div>
 
@@ -65,6 +84,58 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, activeGroupId, onNavigat
             )}
           </div>
         </div>
+      </div>
+
+      {/* Footer Controls */}
+      <div className="p-4 border-t border-zinc-800 space-y-2">
+         {currentUser ? (
+             <div className="flex items-center gap-3 px-2 py-2 mb-2">
+                <div 
+                   className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center font-bold text-xs border"
+                   style={{ borderColor: themeColor, color: themeColor }}
+                >
+                   {currentUser.username[0].toUpperCase()}
+                </div>
+                <div className="flex-1 overflow-hidden">
+                   <div className="text-sm font-bold text-white truncate">{currentUser.username}</div>
+                   <div className="text-[10px] text-zinc-500 truncate">Online</div>
+                </div>
+             </div>
+         ) : (
+             <button 
+                onClick={onLogin}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
+             >
+                <User size={18} />
+                {t.loginSync}
+             </button>
+         )}
+
+         <button 
+            onClick={onOpenStats}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
+         >
+            <Activity size={18} />
+            {t.performance}
+         </button>
+         
+         <button 
+            onClick={onOpenSettings}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
+         >
+            <Settings size={18} />
+            {t.studioSettings}
+         </button>
+
+         {currentUser && (
+            <button 
+               onClick={onLogout}
+               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-900/10 transition-colors"
+            >
+               <LogOut size={18} />
+               {t.logout}
+            </button>
+         )}
       </div>
     </div>
   );
