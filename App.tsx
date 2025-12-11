@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Settings, Volume2, VolumeX, Menu, X, Info, User, LogOut, Globe, Check } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import Sortable from 'sortablejs';
 
 import { Task, AppState, DailyStat, ThemeColor } from './types';
 import { THEME_COLORS, STORAGE_KEY, THEME_KEY, APP_VERSION } from './constants';
@@ -45,25 +46,11 @@ function App() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showCongrats, setShowCongrats] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  
-  // Drag and Drop State
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-  const [ghostPos, setGhostPos] = useState<{x: number, y: number} | null>(null);
-  const [ghostDimensions, setGhostDimensions] = useState<{width: number, height: number} | null>(null);
-  
-  // Refs for Drag Logic
-  const dragItemRef = useRef<Task | null>(null);
-  const dragStartIndexRef = useRef<number | null>(null);
-  const longPressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isDraggingRef = useRef(false);
-  const justDraggedRef = useRef(false);
-  const pointerStartRef = useRef<{x: number, y: number} | null>(null);
-  const pointerIdRef = useRef<number | null>(null);
-  
-  // Auto-Scroll Refs
-  const scrollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const scrollSpeedRef = useRef<number>(0);
-  const mainRef = useRef<HTMLElement | null>(null);
+
+  // Refs
+  const gridRef = useRef<HTMLDivElement>(null);
+  const sortableRef = useRef<Sortable | null>(null);
+  const justReorderedRef = useRef(false);
 
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -172,212 +159,47 @@ function App() {
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
-  // --- Drag and Drop Logic ---
-  
-  // 1. Lock Scroll when dragging
+  // --- SortableJS Logic ---
   useEffect(() => {
-    if (draggingIndex !== null) {
-      document.body.style.overflow = 'hidden';
-      // Also lock touch action on the main container to prevent browser panning
-      if (mainRef.current) mainRef.current.style.touchAction = 'none';
-    } else {
-      document.body.style.overflow = '';
-      if (mainRef.current) mainRef.current.style.touchAction = '';
-      stopAutoScroll();
-    }
-    return () => {
-      document.body.style.overflow = '';
-      if (mainRef.current) mainRef.current.style.touchAction = '';
-      stopAutoScroll();
-    };
-  }, [draggingIndex]);
+    if (!gridRef.current) return;
 
-  // 2. Auto Scroll Logic
-  const startAutoScroll = () => {
-    if (scrollIntervalRef.current) return;
-    scrollIntervalRef.current = setInterval(() => {
-      if (mainRef.current && scrollSpeedRef.current !== 0) {
-        mainRef.current.scrollTop += scrollSpeedRef.current;
-      }
-    }, 16); // 60fps
-  };
-
-  const stopAutoScroll = () => {
-    if (scrollIntervalRef.current) {
-      clearInterval(scrollIntervalRef.current);
-      scrollIntervalRef.current = null;
-    }
-    scrollSpeedRef.current = 0;
-  };
-
-  const updateAutoScroll = (y: number) => {
-    const threshold = 100; // px from edge
-    const maxSpeed = 15;
-    const viewportHeight = window.innerHeight;
-    
-    if (y < threshold) {
-      // Scroll Up
-      const intensity = (threshold - y) / threshold;
-      scrollSpeedRef.current = -maxSpeed * intensity;
-      startAutoScroll();
-    } else if (y > viewportHeight - threshold) {
-      // Scroll Down
-      const intensity = (y - (viewportHeight - threshold)) / threshold;
-      scrollSpeedRef.current = maxSpeed * intensity;
-      startAutoScroll();
-    } else {
-      stopAutoScroll();
-    }
-  };
-
-  const handlePointerDown = (e: React.PointerEvent, task: Task, index: number) => {
-    // Ignore if clicking a button inside
-    if ((e.target as HTMLElement).closest('button')) return;
-    
-    // Setup initial refs
-    dragItemRef.current = task;
-    dragStartIndexRef.current = index;
-    isDraggingRef.current = false;
-    pointerStartRef.current = { x: e.clientX, y: e.clientY };
-    pointerIdRef.current = e.pointerId;
-    
-    const target = e.currentTarget as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    
-    const startDrag = () => {
-      isDraggingRef.current = true;
-      setDraggingIndex(index);
-      setGhostDimensions({ width: rect.width, height: rect.height });
-      setGhostPos({ x: e.clientX - rect.width/2, y: e.clientY - rect.height/2 });
-      
-      if (navigator.vibrate) navigator.vibrate(50); // Haptic feedback
-
-      const el = document.querySelector(`[data-index="${index}"]`);
-      if (el && pointerIdRef.current !== null) {
-          try {
-             (el as HTMLElement).setPointerCapture(pointerIdRef.current);
-          } catch (e) {
-             // Ignore
-          }
-      }
-    };
-
-    if (e.pointerType === 'mouse') {
-      // Mouse drags immediately
-    } else {
-      // Touch: 200ms hold (snappier)
-      longPressTimeoutRef.current = setTimeout(startDrag, 200);
-    }
-  };
-
-  useEffect(() => {
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!pointerStartRef.current) return;
-
-      const dx = e.clientX - pointerStartRef.current.x;
-      const dy = e.clientY - pointerStartRef.current.y;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-
-      // Mouse drag start
-      if (e.pointerType === 'mouse' && !isDraggingRef.current && dist > 5 && dragItemRef.current) {
-         isDraggingRef.current = true;
-         setDraggingIndex(dragStartIndexRef.current);
-         const el = document.querySelector(`[data-index="${dragStartIndexRef.current}"]`);
-         if (el) {
-           const rect = el.getBoundingClientRect();
-           setGhostDimensions({ width: rect.width, height: rect.height });
-           try {
-              (el as HTMLElement).setPointerCapture(e.pointerId);
-           } catch(err) {}
-         }
-      }
-
-      // If waiting for long press, cancel if moved too much
-      if (!isDraggingRef.current && longPressTimeoutRef.current) {
-         if (dist > 8) { // Tolerance for "wobble"
-            clearTimeout(longPressTimeoutRef.current);
-            longPressTimeoutRef.current = null;
-         }
-      }
-
-      if (isDraggingRef.current && ghostDimensions) {
-        e.preventDefault(); // Stop native behavior
-        
-        setGhostPos({ 
-          x: e.clientX - ghostDimensions.width / 2, 
-          y: e.clientY - ghostDimensions.height / 2 
-        });
-
-        // Trigger Auto Scroll
-        updateAutoScroll(e.clientY);
-
-        // Hit test
-        const elements = document.elementsFromPoint(e.clientX, e.clientY);
-        const padItem = elements.find(el => el.classList.contains('pad-item'));
-        
-        if (padItem) {
-          const hoverIndexStr = padItem.getAttribute('data-index');
-          if (hoverIndexStr) {
-            const hoverIndex = parseInt(hoverIndexStr, 10);
-            const currentIndex = dragStartIndexRef.current; 
-            
-            if (currentIndex !== null && hoverIndex !== currentIndex) {
-              // Reorder
-              setTasks(prev => {
-                const newTasks = [...prev];
-                const [moved] = newTasks.splice(currentIndex, 1);
-                newTasks.splice(hoverIndex, 0, moved);
-                return newTasks;
-              });
-              dragStartIndexRef.current = hoverIndex;
-              setDraggingIndex(hoverIndex);
-            }
-          }
+    sortableRef.current = Sortable.create(gridRef.current, {
+      animation: 250,
+      handle: '.drag-handle', // Only drag when pulling the handle
+      draggable: '.pad-item', // Only items with this class are draggable
+      filter: '.static-btn', // 'Create' button cannot be dragged
+      ghostClass: 'sortable-ghost',
+      dragClass: 'sortable-drag',
+      delay: 0, 
+      touchStartThreshold: 3, // Slight movement required to start drag
+      onMove: (evt) => {
+        // Prevent swapping with the "Create" button which is marked with static-btn
+        return !evt.related.classList.contains('static-btn');
+      },
+      onEnd: (evt) => {
+        const { oldIndex, newIndex } = evt;
+        if (oldIndex !== undefined && newIndex !== undefined && oldIndex !== newIndex) {
+          justReorderedRef.current = true;
+          setTasks(prev => {
+            const newTasks = [...prev];
+            const [moved] = newTasks.splice(oldIndex, 1);
+            newTasks.splice(newIndex, 0, moved);
+            return newTasks;
+          });
+          
+          if (soundEnabled) playSound('click');
+          
+          // Reset flag after a moment
+          setTimeout(() => { justReorderedRef.current = false; }, 100);
         }
       }
-    };
-
-    const handlePointerUp = (e: PointerEvent) => {
-      if (longPressTimeoutRef.current) {
-        clearTimeout(longPressTimeoutRef.current);
-      }
-      
-      const wasDragging = isDraggingRef.current;
-
-      if (wasDragging) {
-        justDraggedRef.current = true;
-        setTimeout(() => { justDraggedRef.current = false; }, 50);
-
-        setDraggingIndex(null);
-        setGhostPos(null);
-        if (soundEnabled) playSound('click');
-        
-        try {
-            const el = document.querySelector(`[data-index="${dragStartIndexRef.current}"]`);
-            if (el) {
-                (el as HTMLElement).releasePointerCapture(e.pointerId);
-            }
-        } catch (err) {}
-      }
-
-      isDraggingRef.current = false;
-      dragItemRef.current = null;
-      dragStartIndexRef.current = null;
-      pointerStartRef.current = null;
-      pointerIdRef.current = null;
-      stopAutoScroll();
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, { passive: false });
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
+    });
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
+      sortableRef.current?.destroy();
     };
-  }, [ghostDimensions, soundEnabled]);
+  }, [soundEnabled]); // Re-init if sound setting changes (minor opt, mostly to access current soundEnabled val)
+
 
   // --- Data Logic Helpers ---
   
@@ -501,8 +323,8 @@ function App() {
   };
 
   const handleToggleTask = (id: string) => {
-    // If we were just dragging or just finished dragging, do not toggle
-    if (isDraggingRef.current || justDraggedRef.current) return;
+    // Avoid toggling immediately after a reorder event
+    if (justReorderedRef.current) return;
 
     const today = getToday();
     let justFinishedAll = false;
@@ -651,28 +473,6 @@ function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
-      
-      {/* Ghost Item for Dragging */}
-      {draggingIndex !== null && ghostPos && tasks[draggingIndex] && (
-        <PadItem 
-          task={tasks[draggingIndex]}
-          index={draggingIndex} // The index number visual remains static for the ghost
-          themeColor={theme.hex}
-          themeShadow={theme.shadow}
-          onToggle={() => {}} 
-          onEdit={() => {}} 
-          onDelete={() => {}} 
-          onViewInfo={() => {}} 
-          onPointerDown={() => {}}
-          isGhost={true}
-          style={{
-            top: ghostPos.y,
-            left: ghostPos.x,
-            width: ghostDimensions?.width,
-            height: ghostDimensions?.height
-          }}
-        />
-      )}
 
       {/* Sidebar */}
       <div 
@@ -781,10 +581,7 @@ function App() {
         </header>
 
         {/* Grid Area */}
-        <main 
-          ref={mainRef}
-          className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 touch-pan-y"
-        >
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 touch-pan-y">
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-zinc-600 space-y-4">
               <div className="w-24 h-24 border-2 border-dashed border-zinc-800 rounded-2xl flex items-center justify-center">
@@ -794,7 +591,7 @@ function App() {
               <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">{t.createOne}</button>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
+            <div ref={gridRef} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
               {tasks.map((task, index) => (
                 <PadItem 
                   key={task.id} 
@@ -806,14 +603,12 @@ function App() {
                   onEdit={openEditModal}
                   onDelete={handleDeleteRequest}
                   onViewInfo={openInfoModal}
-                  onPointerDown={handlePointerDown}
-                  isDragging={draggingIndex === index}
                 />
               ))}
               
               <button 
                 onClick={openCreateModal}
-                className="aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
+                className="static-btn aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
               >
                 <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
                 <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">{t.create}</span>

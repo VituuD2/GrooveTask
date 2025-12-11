@@ -23,13 +23,25 @@ body {
   background: #71717a; 
 }
 
-/* Drag and Drop Ghost */
-.ghost-item {
-  position: fixed;
-  pointer-events: none;
-  z-index: 9999;
-  opacity: 0.9;
-  transform-origin: center center;
+/* SortableJS Classes */
+.sortable-ghost {
+  opacity: 0.2;
+}
+
+.sortable-drag {
+  cursor: grabbing;
+  opacity: 1 !important;
+  background: #27272a; /* zinc-800 */
+  transform: scale(1.05);
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-  touch-action: none;
+  z-index: 9999;
+}
+
+/* Fallback for touch action */
+.pad-item {
+  touch-action: pan-y; /* Allow scrolling on pad items unless grabbing handle */
+}
+
+.drag-handle {
+  touch-action: none; /* Prevent scrolling when touching the handle */
 }

@@ -12,9 +12,6 @@ interface PadItemProps {
   onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
   onViewInfo: (task: Task) => void;
-  onPointerDown: (e: React.PointerEvent, task: Task, index: number) => void;
-  isDragging?: boolean;
-  isGhost?: boolean;
   style?: React.CSSProperties;
 }
 
@@ -27,9 +24,6 @@ const PadItem: React.FC<PadItemProps> = ({
   onEdit,
   onDelete,
   onViewInfo,
-  onPointerDown,
-  isDragging = false,
-  isGhost = false,
   style = {}
 }) => {
   const { t } = useLanguage();
@@ -38,16 +32,10 @@ const PadItem: React.FC<PadItemProps> = ({
   return (
     <div 
       data-index={index}
-      onPointerDown={(e) => {
-        // Prevent default only if it's the specific grip handle or we decide to block standard touch behavior
-        if (!showMenu) onPointerDown(e, task, index);
-      }}
       className={`
         pad-item relative group aspect-square rounded-2xl transition-transform duration-200 ease-out
         flex flex-col justify-between p-4 cursor-pointer overflow-hidden
         border-2 select-none
-        ${isGhost ? 'ghost-item scale-105 bg-zinc-800' : ''}
-        ${isDragging ? 'opacity-30' : 'opacity-100'}
         ${task.isCompleted 
           ? 'bg-zinc-900 scale-[0.98]' 
           : 'bg-zinc-800 hover:bg-zinc-750 hover:-translate-y-1 hover:shadow-xl'
@@ -61,6 +49,7 @@ const PadItem: React.FC<PadItemProps> = ({
       onClick={(e) => {
         if ((e.target as HTMLElement).closest('.action-btn')) return;
         if ((e.target as HTMLElement).closest('.menu-container')) return;
+        if ((e.target as HTMLElement).closest('.drag-handle')) return;
         onToggle(task.id);
       }}
     >
@@ -69,15 +58,18 @@ const PadItem: React.FC<PadItemProps> = ({
         #{index + 1}
       </div>
 
-      {/* Drag Grip (Visible on Hover/Ghost) */}
-      <div className="absolute top-4 left-4 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing">
-         <GripVertical size={16} />
+      {/* Drag Grip Handle - Always visible or enhanced for touch */}
+      <div 
+        className="drag-handle absolute top-4 left-4 p-2 -ml-2 -mt-2 text-zinc-500 hover:text-zinc-300 cursor-grab active:cursor-grabbing z-20"
+        title="Drag to reorder"
+      >
+         <GripVertical size={20} />
       </div>
 
       {/* Content */}
-      <div className="mt-auto z-10 relative">
+      <div className="mt-auto z-10 relative pointer-events-none">
          <div className="flex items-end justify-between gap-2">
-            <h3 className={`font-bold text-lg leading-tight line-clamp-2 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
+            <h3 className={`font-bold text-lg leading-tight line-clamp-3 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
                {task.title}
             </h3>
             
