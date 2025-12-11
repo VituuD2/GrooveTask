@@ -115,13 +115,21 @@ async function generateAndClaimUniqueUsername(email: string, userId: string): Pr
   throw new Error("Could not generate unique username after multiple attempts");
 }
 
-// Helper: Get Tasks (Handles migration from String Array to Hash & Sorting)
+// Helper: Get Tasks (Optimized with Parallel Fetch)
 async function getTasks(uid: string): Promise<Task[]> {
   const key = `data:tasks:${uid}`;
   const orderKey = `data:tasks:order:${uid}`;
-  const type = await redis.type(key);
+  
+  // Parallel Fetch: Get Type, Hash Data, and Order simultaneously to reduce latency.
+  // We attach a catch to hgetall to handle the case where the key is 'string' (legacy data),
+  // which would otherwise throw a WRONGTYPE error.
+  const [type, rawMap, order] = await Promise.all([
+    redis.type(key),
+    redis.hgetall<Record<string, string>>(key).catch(() => null),
+    redis.get<string[]>(orderKey)
+  ]);
 
-  // Migration: If currently stored as a JSON string (old format), convert to Hash
+  // Migration: If currently stored as a JSON string (old format)
   if (type === 'string') {
     const raw = await redis.get<Task[]>(key);
     const tasks = Array.isArray(raw) ? raw : [];
@@ -145,10 +153,7 @@ async function getTasks(uid: string): Promise<Task[]> {
   } 
   
   // Standard Hash Fetch
-  if (type === 'hash') {
-    const rawMap = await redis.hgetall<Record<string, string>>(key);
-    if (!rawMap) return [];
-    
+  if (type === 'hash' && rawMap) {
     // Values are JSON strings, parse them back to objects
     const tasks = Object.values(rawMap)
       .map(val => {
@@ -160,9 +165,6 @@ async function getTasks(uid: string): Promise<Task[]> {
       })
       .filter((t): t is Task => t !== null);
 
-    // Fetch Order to sort tasks
-    const order = await redis.get<string[]>(orderKey);
-    
     if (order && Array.isArray(order)) {
       const taskMap = new Map(tasks.map(t => [t.id, t]));
       const sortedTasks: Task[] = [];
