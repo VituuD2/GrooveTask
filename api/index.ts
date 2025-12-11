@@ -104,6 +104,107 @@ async function generateUniqueUsername(email: string): Promise<string> {
   return candidate;
 }
 
+// Helper: Get Tasks (Handles migration from String Array to Hash)
+async function getTasks(uid: string): Promise<Task[]> {
+  const key = `data:tasks:${uid}`;
+  const type = await redis.type(key);
+
+  // Migration: If currently stored as a JSON string (old format), convert to Hash
+  if (type === 'string') {
+    const raw = await redis.get<Task[]>(key);
+    const tasks = Array.isArray(raw) ? raw : [];
+    
+    // Delete the old string key
+    await redis.del(key);
+    
+    // Convert to Hash map and store
+    if (tasks.length > 0) {
+      const hashData: Record<string, string> = {};
+      tasks.forEach(t => {
+        hashData[t.id] = JSON.stringify(t);
+      });
+      await redis.hset(key, hashData);
+    }
+    return tasks;
+  } 
+  
+  // Standard Hash Fetch
+  if (type === 'hash') {
+    const rawMap = await redis.hgetall<Record<string, string>>(key);
+    if (!rawMap) return [];
+    
+    // Values are JSON strings, parse them back to objects
+    return Object.values(rawMap)
+      .map(val => {
+        try {
+          return typeof val === 'string' ? JSON.parse(val) : val;
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter((t): t is Task => t !== null);
+  }
+
+  // If 'none' or other, return empty array
+  return [];
+}
+
+// Helper: Save Tasks (Sync logic using Hash)
+async function saveTasks(uid: string, tasks: any[]) {
+  const key = `data:tasks:${uid}`;
+  
+  // Clean input tasks
+  const cleanTasks = tasks.map(t => ({
+     id: t.id,
+     title: t.title,
+     description: t.description || '',
+     isCompleted: t.isCompleted,
+     completedAt: t.completedAt,
+     createdAt: t.createdAt
+  }));
+
+  if (cleanTasks.length === 0) {
+    // If empty list, remove the key
+    await redis.del(key);
+    return;
+  }
+
+  // Safety check for migration/type mismatch
+  const type = await redis.type(key);
+  if (type === 'string') {
+    await redis.del(key);
+  }
+
+  // Sync Strategy:
+  // 1. Get existing keys to identify deletions
+  // 2. Update/Add new tasks
+  // 3. Delete missing tasks
+  // Note: This assumes the client sends the *full* list of active tasks.
+  
+  const currentIds = await redis.hkeys(key);
+  const newIdsSet = new Set(cleanTasks.map(t => t.id));
+  
+  const pipeline = redis.pipeline();
+
+  // Tasks to delete (present in DB but missing in payload)
+  const idsToDelete = currentIds.filter(id => !newIdsSet.has(id));
+  if (idsToDelete.length > 0) {
+    pipeline.hdel(key, ...idsToDelete);
+  }
+
+  // Tasks to update/add
+  const hashUpdates: Record<string, string> = {};
+  cleanTasks.forEach(t => {
+    hashUpdates[t.id] = JSON.stringify(t);
+  });
+  
+  if (Object.keys(hashUpdates).length > 0) {
+     pipeline.hset(key, hashUpdates);
+  }
+
+  await pipeline.exec();
+}
+
 // --- MIDDLEWARE HELPERS ---
 interface AuthRequest extends Request {
   user?: { uid: string; email: string };
@@ -184,8 +285,9 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
     await redis.set(`user:${userId}`, newUser);
     await redis.set(`email:${cleanEmail}`, userId);
     await redis.set(`username:${username.toLowerCase()}`, userId);
-    // Initialize empty collections
-    await redis.set(`data:tasks:${userId}`, []);
+    
+    // We do NOT set data:tasks as [] anymore because that creates a String type key.
+    // Hashes are created on demand when fields are added.
     await redis.set(`data:history:${userId}`, []);
 
     const token = jwt.sign({ uid: userId, email: cleanEmail }, JWT_SECRET, { expiresIn: '30d' });
@@ -267,20 +369,9 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
        const newUsername = await generateUniqueUsername(cleanId);
        
        // Clean old data structure
-       // Old: { data: { tasks: [], history: [] }, settings: {} }
        const oldTasks = oldUserPayload.data?.tasks || [];
        const oldHistory = oldUserPayload.data?.history || [];
        
-       // Normalize Tasks (Fix dates, remove redundant)
-       const normalizedTasks = oldTasks.map((t: any) => ({
-         id: t.id,
-         title: t.title,
-         description: t.description || '',
-         isCompleted: t.isCompleted,
-         completedAt: t.lastCompletedDate ? new Date(t.lastCompletedDate).getTime() : null, // Convert string date to timestamp
-         createdAt: t.createdAt || Date.now()
-       }));
-
        const newUserProfile: UserProfile = {
          id: newUid,
          email: cleanId,
@@ -295,7 +386,26 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
        await redis.set(`user:${newUid}`, newUserProfile);
        await redis.set(`email:${cleanId}`, newUid);
        await redis.set(`username:${newUsername.toLowerCase()}`, newUid);
-       await redis.set(`data:tasks:${newUid}`, normalizedTasks);
+       
+       // Handle Tasks Migration via helper logic or direct
+       if (oldTasks.length > 0) {
+          // Manually migrate here to avoid 'getTasks' complexity inside login flow
+          // But ensure normalized dates
+          const hashData: Record<string, string> = {};
+          oldTasks.forEach((t: any) => {
+             const cleanT = {
+                id: t.id,
+                title: t.title,
+                description: t.description || '',
+                isCompleted: t.isCompleted,
+                completedAt: t.lastCompletedDate ? new Date(t.lastCompletedDate).getTime() : null,
+                createdAt: t.createdAt || Date.now()
+             };
+             hashData[t.id] = JSON.stringify(cleanT);
+          });
+          await redis.hset(`data:tasks:${newUid}`, hashData);
+       }
+
        await redis.set(`data:history:${newUid}`, oldHistory);
        
        // Delete Old Key
@@ -305,9 +415,8 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
        userProfile = newUserProfile;
     }
 
-    // E. Fetch Data (Separated Collections)
-    // We fetch them here to return a unified object to the frontend
-    const tasks = await redis.get<Task[]>(`data:tasks:${userId}`) || [];
+    // E. Fetch Data (Separated Collections with Hash support)
+    const tasks = await getTasks(userId!); // Use '!' as logic ensures userId exists here
     const history = await redis.get<DailyStat[]>(`data:history:${userId}`) || [];
 
     const token = jwt.sign({ uid: userProfile.id, email: userProfile.email }, JWT_SECRET, { expiresIn: '30d' });
@@ -346,8 +455,8 @@ app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
 
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  // Fetch separate collections
-  const tasks = await redis.get<Task[]>(`data:tasks:${userId}`) || [];
+  // Fetch separate collections with Hash logic
+  const tasks = await getTasks(userId);
   const history = await redis.get<DailyStat[]>(`data:history:${userId}`) || [];
 
   return res.status(200).json({ 
@@ -411,24 +520,16 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
   });
 });
 
-// 6. Sync Data (Tasks & History separate)
+// 6. Sync Data (Tasks via Hash & History separate)
 app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
   const userId = authReq.user?.uid;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   
   const { tasks, history } = req.body;
 
   if (tasks && Array.isArray(tasks)) {
-    // Sanitize tasks before saving to remove any frontend artifacts if any
-    const cleanTasks = tasks.map(t => ({
-       id: t.id,
-       title: t.title,
-       description: t.description || '',
-       isCompleted: t.isCompleted,
-       completedAt: t.completedAt,
-       createdAt: t.createdAt
-    }));
-    await redis.set(`data:tasks:${userId}`, cleanTasks);
+    await saveTasks(userId, tasks);
   }
 
   if (history && Array.isArray(history)) {
