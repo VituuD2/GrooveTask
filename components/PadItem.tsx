@@ -36,7 +36,7 @@ const PadItem: React.FC<PadItemProps> = ({
       data-index={index}
       className={`
         pad-item relative group aspect-square rounded-xl transition-all duration-200 ease-out
-        flex flex-col justify-between p-3 overflow-hidden border-2 select-none
+        flex flex-col justify-between p-2.5 overflow-hidden border-2 select-none
         ${isReordering ? 'cursor-move edit-mode-shake' : 'cursor-pointer'}
         ${task.isCompleted 
           ? 'bg-zinc-900 scale-[0.98]' 
@@ -64,28 +64,28 @@ const PadItem: React.FC<PadItemProps> = ({
       )}
 
       {/* Order Badge */}
-      <div className="absolute top-3 right-3 text-[10px] font-bold text-zinc-600 bg-zinc-900/50 px-1.5 py-0.5 rounded-full z-0 group-hover:opacity-0 transition-opacity">
+      <div className="absolute top-2 right-2 text-[9px] font-bold text-zinc-600 bg-zinc-900/50 px-1.5 py-0.5 rounded-full z-0 group-hover:opacity-0 transition-opacity">
         #{index + 1}
       </div>
 
       {/* Content */}
       <div className="mt-auto z-10 relative pointer-events-none">
-         <div className="flex items-end justify-between gap-2">
-            <h3 className={`font-bold text-sm leading-tight line-clamp-3 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
+         <div className="flex items-end justify-between gap-1.5">
+            <h3 className={`font-bold text-xs sm:text-sm leading-tight line-clamp-3 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
                {task.title}
             </h3>
             
             <div 
-              className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center border transition-all ${task.isCompleted ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/50 border-zinc-700'}`}
+              className={`shrink-0 w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center border transition-all ${task.isCompleted ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/50 border-zinc-700'}`}
               style={{ borderColor: task.isCompleted ? themeColor : undefined, color: task.isCompleted ? themeColor : '#71717a' }}
             >
-              {task.isCompleted ? <Check size={14} strokeWidth={3} /> : <Play size={12} fill="currentColor" className="ml-0.5" />}
+              {task.isCompleted ? <Check size={12} strokeWidth={3} /> : <Play size={10} fill="currentColor" className="ml-0.5" />}
             </div>
          </div>
          {task.description && (
             <div className="mt-1 flex items-center gap-1">
                <div className="h-1 w-1 rounded-full bg-zinc-600" />
-               <span className="text-[9px] text-zinc-500 font-medium truncate max-w-full">{t.viewDetails}</span>
+               <span className="text-[8px] sm:text-[9px] text-zinc-500 font-medium truncate max-w-full">{t.viewDetails}</span>
             </div>
          )}
       </div>
@@ -97,7 +97,7 @@ const PadItem: React.FC<PadItemProps> = ({
              e.stopPropagation();
              setShowMenu(!showMenu);
           }}
-          className="action-btn absolute top-1 right-1 p-2 text-zinc-600 hover:text-white rounded-lg hover:bg-zinc-700/50 opacity-0 group-hover:opacity-100 transition-all z-20"
+          className="action-btn absolute top-1 right-1 p-1.5 text-zinc-600 hover:text-white rounded-lg hover:bg-zinc-700/50 opacity-0 group-hover:opacity-100 transition-all z-20"
         >
           <MoreVertical size={14} />
         </button>

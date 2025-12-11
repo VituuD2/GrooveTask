@@ -253,7 +253,14 @@ function App() {
     setShowSettingsModal(true);
   };
 
+  const hasSettingsChanged = 
+    tempTheme.id !== theme.id || 
+    tempSound !== soundEnabled || 
+    tempLanguage !== language;
+
   const handleSaveSettings = () => {
+    if (!hasSettingsChanged) return;
+    
     // Commit temp state to real state
     setTheme(tempTheme);
     setSoundEnabled(tempSound);
@@ -597,7 +604,7 @@ function App() {
                   delay={0}
                   ghostClass="sortable-ghost"
                   dragClass="sortable-drag"
-                  className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 auto-rows-min pb-24"
+                  className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 auto-rows-min pb-24"
                 >
                   {tasks.map((task, index) => (
                     <PadItem 
@@ -615,7 +622,7 @@ function App() {
                   ))}
                 </ReactSortable>
               ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 auto-rows-min pb-24">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4 auto-rows-min pb-24">
                   {tasks.map((task, index) => (
                     <PadItem 
                       key={task.id} 
@@ -816,8 +823,13 @@ function App() {
              {/* Save Button */}
              <button
                 onClick={handleSaveSettings}
-                className="w-full py-3 rounded-xl font-bold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-                style={{ backgroundColor: tempTheme.hex, boxShadow: `0 4px 14px ${tempTheme.shadow}` }}
+                disabled={!hasSettingsChanged}
+                className={`w-full py-3 rounded-xl font-bold shadow-lg transition-all flex items-center justify-center gap-2 ${
+                  hasSettingsChanged 
+                    ? 'text-white hover:scale-[1.02] active:scale-[0.98]' 
+                    : 'bg-zinc-800 text-zinc-500 cursor-not-allowed shadow-none'
+                }`}
+                style={hasSettingsChanged ? { backgroundColor: tempTheme.hex, boxShadow: `0 4px 14px ${tempTheme.shadow}` } : {}}
               >
                 <Save size={18} />
                 {t.saveChanges}
