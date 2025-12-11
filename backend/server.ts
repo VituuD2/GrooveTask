@@ -11,8 +11,8 @@ import { v4 as uuidv4 } from 'uuid';
 // --- DATABASE CONFIGURATION ---
 // We check standard Upstash env vars, Vercel KV vars, and finally fallback to the hardcoded keys provided.
 const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || 'https://oriented-escargot-7784.upstash.io',
-  token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || 'AR5oAAImcDFiZGQ3YjIwZDg3ODI0OTdiOGIyYTBhY2FhZTQ5YjRlM3AxNzc4NA',
+  url: process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN,
 });
 
 interface User {
