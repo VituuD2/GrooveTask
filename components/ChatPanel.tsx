@@ -40,9 +40,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, currentUser, themeColor 
     e.preventDefault();
     if (!input.trim()) return;
 
+    // Use actual username for optimistic update
     const optimisticMsg: ChatMessage = {
       id: 'temp-' + Date.now(),
-      sender: currentUser.username,
+      sender: currentUser.username, 
       text: input,
       timestamp: Date.now()
     };

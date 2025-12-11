@@ -94,6 +94,7 @@ function App() {
   const [tempSound, setTempSound] = useState(true);
   const [tempLanguage, setTempLanguage] = useState<LanguageCode>('en');
   const [tempUsername, setTempUsername] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // --- Effects ---
@@ -159,6 +160,36 @@ function App() {
     localStorage.setItem(THEME_KEY, theme.id);
     localStorage.setItem('groovetask_sound', JSON.stringify(soundEnabled));
   }, [theme, soundEnabled]);
+
+  // Username Check Effect
+  useEffect(() => {
+    if (!showSettingsModal || !isLoggedIn) return;
+    if (tempUsername === currentUser?.username) {
+        setUsernameStatus('idle');
+        return;
+    }
+    if (tempUsername.length < 3) {
+        setUsernameStatus('idle');
+        return;
+    }
+
+    const timer = setTimeout(async () => {
+        setUsernameStatus('checking');
+        try {
+            const res = await fetch('/api/auth/check-username', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: tempUsername })
+            });
+            const data = await res.json();
+            setUsernameStatus(data.available ? 'available' : 'taken');
+        } catch {
+            setUsernameStatus('idle');
+        }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
+  }, [tempUsername, showSettingsModal, isLoggedIn, currentUser]);
 
   const applySettings = (settings: any) => {
     if (settings.themeId) setTheme(THEME_COLORS.find(t => t.id === settings.themeId) || THEME_COLORS[0]);
@@ -359,6 +390,7 @@ function App() {
       setTempSound(soundEnabled);
       setTempLanguage(language);
       setTempUsername(currentUser?.username || '');
+      setUsernameStatus('idle');
       setShowSettingsModal(true);
   };
 
@@ -413,9 +445,19 @@ function App() {
      }
   };
 
-  // --- Render ---
+  // --- Derived State for UI ---
   const completedToday = activeTasks.filter(t => t.isCompleted).length;
   const remainingChanges = MAX_USERNAME_CHANGES - (currentUser?.usernameChangeCount || 0);
+
+  // Determine if settings have changed
+  const hasSettingsChanged = 
+      tempTheme.id !== theme.id || 
+      tempSound !== soundEnabled || 
+      tempLanguage !== language || 
+      (isLoggedIn && currentUser && tempUsername !== currentUser.username && tempUsername.length >= 3);
+
+  // Determine if we can save
+  const canSave = hasSettingsChanged && usernameStatus !== 'checking' && usernameStatus !== 'taken';
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
@@ -691,17 +733,26 @@ function App() {
                      <div className="mb-6">
                          <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">{t.username}</h3>
                          <div className="flex flex-col gap-2">
-                             <input 
-                               value={tempUsername} 
-                               onChange={e => setTempUsername(e.target.value)} 
-                               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:border-white outline-none" 
-                               disabled={remainingChanges <= 0}
-                             />
+                             <div className="relative">
+                                 <input 
+                                   value={tempUsername} 
+                                   onChange={e => setTempUsername(e.target.value)} 
+                                   className={`w-full bg-zinc-950 border rounded-xl p-3 pr-10 text-white focus:outline-none ${usernameStatus === 'taken' ? 'border-red-500' : 'border-zinc-800 focus:border-white'}`}
+                                   disabled={remainingChanges <= 0}
+                                 />
+                                 <div className="absolute right-3 top-3.5">
+                                    {usernameStatus === 'checking' && <Loader2 size={16} className="animate-spin text-zinc-400" />}
+                                    {usernameStatus === 'available' && <Check size={16} className="text-green-500" />}
+                                    {usernameStatus === 'taken' && <X size={16} className="text-red-500" />}
+                                 </div>
+                             </div>
                              <div className="flex justify-between items-center text-xs">
                                  <span className={`${remainingChanges <= 0 ? 'text-red-400' : 'text-zinc-500'}`}>
                                     {remainingChanges} {t.changesRemaining}
                                  </span>
-                                 {remainingChanges <= 0 && <span className="text-red-500 font-bold">Limit Reached</span>}
+                                 {usernameStatus === 'taken' && <span className="text-red-500 font-bold ml-auto">{t.usernameTaken}</span>}
+                                 {usernameStatus === 'available' && <span className="text-green-500 font-bold ml-auto">Available</span>}
+                                 {remainingChanges <= 0 && usernameStatus !== 'taken' && usernameStatus !== 'available' && <span className="text-red-500 font-bold">Limit Reached</span>}
                              </div>
                          </div>
                      </div>
@@ -744,7 +795,14 @@ function App() {
                  
                  {settingsError && <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-200 text-xs mb-4">{settingsError}</div>}
 
-                 <button onClick={handleSaveSettings} className="w-full py-3 rounded-xl font-bold text-white transition-opacity hover:opacity-90" style={{ backgroundColor: tempTheme.hex }}>{t.saveChanges}</button>
+                 <button 
+                    onClick={handleSaveSettings} 
+                    disabled={!canSave}
+                    className="w-full py-3 rounded-xl font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed" 
+                    style={{ backgroundColor: canSave ? tempTheme.hex : '#3f3f46' }}
+                 >
+                    {t.saveChanges}
+                 </button>
              </div>
          </div>
       )}

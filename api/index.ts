@@ -15,7 +15,6 @@ const redis = new Redis({
 });
 
 // --- TYPES RE-DEFINITION (Backend Context) ---
-// (Keeping interface definitions consistent with frontend)
 interface Task {
   id: string;
   groupId?: string;
@@ -67,7 +66,7 @@ app.use(cookieParser() as any);
 // Rate Limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 50, // Increased for chat polling
+  max: 50, 
   standardHeaders: true, 
   legacyHeaders: false, 
 });
@@ -266,6 +265,22 @@ app.post('/api/auth/logout', (req: any, res: any) => {
   return res.status(200).json({ message: 'Logged out' });
 });
 
+// Check Username Availability
+app.post('/api/auth/check-username', requireAuth as any, async (req: any, res: any) => {
+  const { username } = req.body;
+  if (!username || username.length < 3 || username.length > 20) {
+    return res.status(400).json({ error: 'Invalid length' });
+  }
+  
+  // Check if taken by SOMEONE ELSE
+  const existingId = await redis.get<string>(`username:${username.toLowerCase()}`);
+  
+  // Available if null OR if it belongs to me
+  const isAvailable = !existingId || existingId === req.user.uid;
+  
+  return res.json({ available: isAvailable });
+});
+
 app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   const userId = req.user.uid;
   const user = await redis.get<UserProfile>(`user:${userId}`);
@@ -416,11 +431,14 @@ app.get('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) =
 app.post('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) => {
   const groupId = req.params.id;
   const { text } = req.body;
+  
+  // Securely get user from session
   const user = await redis.get<UserProfile>(`user:${req.user.uid}`);
+  const senderName = user ? user.username : 'Unknown';
   
   const msg: ChatMessage = {
     id: uuidv4(),
-    sender: user?.username || 'Anon',
+    sender: senderName,
     text,
     timestamp: Date.now()
   };
