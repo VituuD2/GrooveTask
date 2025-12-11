@@ -75,8 +75,6 @@ function App() {
   const [formDesc, setFormDesc] = useState('');
 
   // Refs for debouncing and syncing
-  const settingsSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isRemoteUpdate = useRef(false);
   const tasksRef = useRef<Task[]>(tasks); // Ref to track tasks for Sortable onEnd
 
   // --- Dynamic Favicon Effect ---
@@ -210,7 +208,6 @@ function App() {
 
   const applyRemoteData = (data: { tasks: Task[], history: DailyStat[] }) => {
      if (data && (data.tasks.length > 0 || data.history.length > 0)) {
-         isRemoteUpdate.current = true;
          applyResetLogic(data.tasks, data.history);
      }
   };
@@ -245,7 +242,7 @@ function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: newTasks, history: newHistory }));
 
     // 2. Sync Remote if Logged In
-    if (isLoggedIn && !isRemoteUpdate.current) {
+    if (isLoggedIn) {
        try {
          const order = newTasks.map(t => t.id); // Extract order
          const res = await fetch('/api/user/data', {
@@ -266,7 +263,7 @@ function App() {
       const currentHistory = history; 
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: newTasks, history: currentHistory }));
       
-      if (isLoggedIn && !isRemoteUpdate.current) {
+      if (isLoggedIn) {
           try {
             const order = newTasks.map(t => t.id);
             const res = await fetch('/api/user/data', {
