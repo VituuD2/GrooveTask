@@ -7,23 +7,25 @@ export interface LogEntry {
 
 export interface Task {
   id: string;
-  type?: TaskType; // Defaults to 'simple' if undefined for legacy compatibility
+  groupId?: string; // Optional: if belongs to a group
+  type?: TaskType; 
   title: string;
   description: string;
   
   // Simple Track Props
   isCompleted: boolean;
-  completedAt: number | null; // Timestamp
+  completedAt: number | null; 
   
   // Counter Track Props
   count?: number;
   log?: LogEntry[];
 
   createdAt: number;
+  updatedBy?: string; // Username of last editor
 }
 
 export interface DailyStat {
-  date: string; // YYYY-MM-DD (Keep string for chart grouping)
+  date: string; 
   completedCount: number;
   totalTasksAtEnd: number;
 }
@@ -53,4 +55,20 @@ export interface UserProfile {
   usernameChangeCount: number;
   createdAt: number;
   settings: UserSettings;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  ownerId: string;
+  createdAt: number;
+  memberCount?: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  sender: string; // Username
+  text: string;
+  timestamp: number;
+  isSystem?: boolean;
 }

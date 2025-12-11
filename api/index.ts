@@ -14,34 +14,20 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN,
 });
 
-// --- TYPES ---
-interface LogEntry {
-  id: string;
-  timestamp: number;
-}
-
+// --- TYPES RE-DEFINITION (Backend Context) ---
+// (Keeping interface definitions consistent with frontend)
 interface Task {
   id: string;
+  groupId?: string;
   type?: 'simple' | 'counter';
   title: string;
   description: string;
   isCompleted: boolean;
   completedAt: number | null;
   count?: number;
-  log?: LogEntry[];
+  log?: any[];
   createdAt: number;
-}
-
-interface DailyStat {
-  date: string;
-  completedCount: number;
-  totalTasksAtEnd: number;
-}
-
-interface UserSettings {
-  themeId: string;
-  soundEnabled: boolean;
-  language?: string;
+  updatedBy?: string;
 }
 
 interface UserProfile {
@@ -51,7 +37,21 @@ interface UserProfile {
   usernameChangeCount: number;
   passwordHash: string;
   createdAt: number;
-  settings: UserSettings;
+  settings: any;
+}
+
+interface Group {
+  id: string;
+  name: string;
+  ownerId: string;
+  createdAt: number;
+}
+
+interface ChatMessage {
+  id: string;
+  sender: string;
+  text: string;
+  timestamp: number;
 }
 
 // --- CONFIGURATION ---
@@ -60,7 +60,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_do_not_use_in_prod';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', 1);
-
 app.use(helmet() as any);
 app.use(express.json({ limit: '10mb' }) as any);
 app.use(cookieParser() as any);
@@ -68,34 +67,27 @@ app.use(cookieParser() as any);
 // Rate Limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 20, 
-  message: { error: 'Too many attempts, please try again later.' },
+  max: 50, // Increased for chat polling
   standardHeaders: true, 
   legacyHeaders: false, 
 });
 
-// Validation
+// Validation Schemas
 const registerSchema = z.object({
-  email: z.string().email('Invalid email format'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  email: z.string().email(),
+  password: z.string().min(8),
   language: z.string().optional(),
 });
-
 const loginSchema = z.object({
-  identifier: z.string(), // email or username
+  identifier: z.string(),
   password: z.string(),
 });
+const groupSchema = z.object({
+  name: z.string().min(3).max(30),
+});
 
-const usernameSchema = z.string()
-  .min(3)
-  .max(20)
-  .regex(/^[a-zA-Z0-9_]+$/, 'Only letters, numbers, and underscores allowed');
+// --- HELPERS & SERVICES ---
 
-// --- HELPERS ---
-
-// Atomic Username Generation & Claim
-// This solves the race condition by using SET ... NX. 
-// If it returns a string, that username has been successfully written to Redis for this userId.
 async function generateAndClaimUniqueUsername(email: string, userId: string): Promise<string> {
   let base = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
   if (base.length < 3) base = base.padEnd(3, 'x');
@@ -105,162 +97,83 @@ async function generateAndClaimUniqueUsername(email: string, userId: string): Pr
   let attempts = 0;
   
   while (attempts < 10) {
-    // Try to atomically set the username key only if it doesn't exist (nx: true)
     const result = await redis.set(`username:${candidate.toLowerCase()}`, userId, { nx: true });
-    
-    // Fix: result is string|null, removed comparison with number 1
-    if (result === 'OK') {
-      // Successfully claimed
-      return candidate;
-    }
-
-    // Collision (race condition or existing user), modify candidate and retry
+    if (result === 'OK') return candidate;
     attempts++;
     const suffix = Math.floor(1000 + Math.random() * 9000);
     candidate = `${base}${suffix}`;
   }
-  
-  throw new Error("Could not generate unique username after multiple attempts");
+  throw new Error("Could not generate unique username");
 }
 
-// Helper: Get Tasks (Optimized with Parallel Fetch)
 async function getTasks(uid: string): Promise<Task[]> {
   const key = `data:tasks:${uid}`;
   const orderKey = `data:tasks:order:${uid}`;
   
-  // Parallel Fetch: Get Type, Hash Data, and Order simultaneously to reduce latency.
-  // We attach a catch to hgetall to handle the case where the key is 'string' (legacy data),
-  // which would otherwise throw a WRONGTYPE error.
   const [type, rawMap, order] = await Promise.all([
     redis.type(key),
     redis.hgetall<Record<string, string>>(key).catch(() => null),
     redis.get<string[]>(orderKey)
   ]);
 
-  // Migration: If currently stored as a JSON string (old format)
-  if (type === 'string') {
-    const raw = await redis.get<Task[]>(key);
-    const tasks = Array.isArray(raw) ? raw : [];
-    
-    // Delete the old string key
-    await redis.del(key);
-    
-    // Convert to Hash map and store
-    if (tasks.length > 0) {
-      const hashData: Record<string, string> = {};
-      const orderIds: string[] = [];
-      tasks.forEach(t => {
-        hashData[t.id] = JSON.stringify(t);
-        orderIds.push(t.id);
-      });
-      await redis.hset(key, hashData);
-      // Also save the order from the array
-      await redis.set(orderKey, orderIds);
-    }
-    return tasks;
-  } 
-  
-  // Standard Hash Fetch
   if (type === 'hash' && rawMap) {
-    // Values are JSON strings, parse them back to objects
     const tasks = Object.values(rawMap)
       .map(val => {
-        try {
-          return typeof val === 'string' ? JSON.parse(val) : val;
-        } catch (e) {
-          return null;
-        }
+        try { return typeof val === 'string' ? JSON.parse(val) : val; } catch (e) { return null; }
       })
       .filter((t): t is Task => t !== null);
 
     if (order && Array.isArray(order)) {
       const taskMap = new Map(tasks.map(t => [t.id, t]));
       const sortedTasks: Task[] = [];
-      
-      // 1. Add tasks in order
       order.forEach(id => {
         const t = taskMap.get(id);
         if (t) {
           sortedTasks.push(t);
-          taskMap.delete(id); // Remove from map so we know what's left
+          taskMap.delete(id);
         }
       });
-      
-      // 2. Append any remaining tasks (orphans not in order list)
-      // Sort them by creation date to be deterministic
-      const remaining = Array.from(taskMap.values()).sort((a, b) => a.createdAt - b.createdAt);
-      
-      return [...sortedTasks, ...remaining];
+      return [...sortedTasks, ...Array.from(taskMap.values())];
     }
-    
-    // If no order key exists, sort by createdAt default
     return tasks.sort((a, b) => a.createdAt - b.createdAt);
   }
-
-  // If 'none' or other, return empty array
   return [];
 }
 
-// Helper: Save Tasks (Sync logic using Hash)
 async function saveTasks(uid: string, tasks: any[], forceEmpty: boolean = false) {
   const key = `data:tasks:${uid}`;
-  
-  // Clean input tasks to ensure they match schema and include new fields
   const cleanTasks = tasks.map(t => ({
      id: t.id,
-     type: t.type || 'simple', // Persist type
+     type: t.type || 'simple',
      title: t.title,
      description: t.description || '',
      isCompleted: t.isCompleted,
      completedAt: t.completedAt,
-     count: typeof t.count === 'number' ? t.count : 0, // Persist count
-     log: Array.isArray(t.log) ? t.log : [], // Persist log
+     count: typeof t.count === 'number' ? t.count : 0,
+     log: Array.isArray(t.log) ? t.log : [],
      createdAt: t.createdAt
   }));
 
-  if (cleanTasks.length === 0) {
-    if (forceEmpty) {
-       // Only delete if explicitly requested via flag
-       await redis.del(key);
-    } else {
-       // Otherwise ignore to prevent accidental data loss (safety mechanism)
-       console.warn(`[Data Safety] Ignored empty task sync for user ${uid} without forceEmpty flag.`);
-    }
-    return;
-  }
+  if (cleanTasks.length === 0 && !forceEmpty) return;
 
-  // Safety check for migration/type mismatch
   const type = await redis.type(key);
-  if (type === 'string') {
-    await redis.del(key);
-  }
+  if (type === 'string') await redis.del(key);
 
-  // Sync Strategy:
   const currentIds = await redis.hkeys(key);
   const newIdsSet = new Set(cleanTasks.map(t => t.id));
-  
   const pipeline = redis.pipeline();
 
-  // Tasks to delete (present in DB but missing in payload)
   const idsToDelete = currentIds.filter(id => !newIdsSet.has(id));
-  if (idsToDelete.length > 0) {
-    pipeline.hdel(key, ...idsToDelete);
-  }
+  if (idsToDelete.length > 0) pipeline.hdel(key, ...idsToDelete);
 
-  // Tasks to update/add
   const hashUpdates: Record<string, string> = {};
-  cleanTasks.forEach(t => {
-    hashUpdates[t.id] = JSON.stringify(t);
-  });
+  cleanTasks.forEach(t => { hashUpdates[t.id] = JSON.stringify(t); });
   
-  if (Object.keys(hashUpdates).length > 0) {
-     pipeline.hset(key, hashUpdates);
-  }
-
+  if (Object.keys(hashUpdates).length > 0) pipeline.hset(key, hashUpdates);
   await pipeline.exec();
 }
 
-// --- MIDDLEWARE HELPERS ---
+// --- MIDDLEWARE ---
 interface AuthRequest extends Request {
   user?: { uid: string; email: string };
   cookies: { [key: string]: string };
@@ -269,10 +182,7 @@ interface AuthRequest extends Request {
 const requireAuth = (req: any, res: any, next: NextFunction) => {
   const authReq = req as AuthRequest;
   const token = authReq.cookies?.auth_session;
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { uid: string; email: string };
@@ -285,44 +195,20 @@ const requireAuth = (req: any, res: any, next: NextFunction) => {
 
 const setAuthCookie = (res: any, token: string) => {
   res.cookie('auth_session', token, {
-    httpOnly: true, 
-    secure: IS_PROD, 
-    sameSite: 'strict', 
-    maxAge: 30 * 24 * 60 * 60 * 1000, 
-    path: '/', 
+    httpOnly: true, secure: IS_PROD, sameSite: 'strict', maxAge: 30 * 24 * 60 * 60 * 1000, path: '/', 
   });
 };
 
-// --- ENDPOINTS ---
-
-// 1. Register
+// --- AUTH ENDPOINTS ---
 app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) => {
   try {
-    const validationResult = registerSchema.safeParse(req.body);
-    if (!validationResult.success) {
-      return res.status(400).json({ error: 'Invalid input format' });
-    }
-
-    const { email, password, language } = validationResult.data;
+    const { email, password, language } = registerSchema.parse(req.body);
     const cleanEmail = email.toLowerCase();
 
-    // Check email existence
-    const existingUid = await redis.get(`email:${cleanEmail}`);
-    if (existingUid) {
-      return res.status(409).json({ error: 'User already exists' });
-    }
-    
-    // Check old style existence for safety
-    const oldUser = await redis.get(`user:${cleanEmail}`);
-    if (oldUser) {
-      return res.status(409).json({ error: 'User already exists' });
-    }
+    if (await redis.get(`email:${cleanEmail}`)) return res.status(409).json({ error: 'User exists' });
 
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = uuidv4();
-    
-    // Atomically generate and claim username
-    // This function performs the redis.set with NX option
     const username = await generateAndClaimUniqueUsername(cleanEmail, userId);
 
     const newUser: UserProfile = {
@@ -332,297 +218,218 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
       usernameChangeCount: 0,
       passwordHash,
       createdAt: Date.now(),
-      settings: {
-        themeId: 'neon-blue',
-        soundEnabled: true,
-        language: language || 'en'
-      }
+      settings: { themeId: 'neon-blue', soundEnabled: true, language: language || 'en' }
     };
 
-    // Save remaining data
     await redis.set(`user:${userId}`, newUser);
     await redis.set(`email:${cleanEmail}`, userId);
-    // Note: Username key is already set by generateAndClaimUniqueUsername
-    
-    // Initialize History
-    await redis.set(`data:history:${userId}`, []);
 
     const token = jwt.sign({ uid: userId, email: cleanEmail }, JWT_SECRET, { expiresIn: '30d' });
     setAuthCookie(res, token);
-
-    return res.status(201).json({ 
-      success: true, 
-      user: { 
-        email: newUser.email, 
-        username: newUser.username,
-        settings: newUser.settings,
-        data: { tasks: [], history: [] } 
-      } 
-    });
-
+    return res.status(201).json({ success: true, user: newUser });
   } catch (error) {
-    console.error('Register error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
-// 2. Login (Supports Migration & Email/Username)
 app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
   try {
-    const validationResult = loginSchema.safeParse(req.body);
-    if (!validationResult.success) return res.status(400).json({ error: 'Invalid input' });
-
-    const { identifier, password } = validationResult.data;
+    const { identifier, password } = loginSchema.parse(req.body);
     const cleanId = identifier.toLowerCase();
     
-    let userId = null;
-    let userProfile = null;
-    let requiresMigration = false;
-    let oldUserPayload: any = null;
+    let userId = cleanId.includes('@') 
+      ? await redis.get<string>(`email:${cleanId}`) 
+      : await redis.get<string>(`username:${cleanId}`);
 
-    // A. Attempt to resolve UID
-    if (cleanId.includes('@')) {
-       // It's an email
-       userId = await redis.get<string>(`email:${cleanId}`);
-       
-       // CHECK FOR LEGACY USER (Migration Trigger)
-       if (!userId) {
-          oldUserPayload = await redis.get(`user:${cleanId}`);
-          if (oldUserPayload) requiresMigration = true;
-       }
-    } else {
-       // It's a username
-       userId = await redis.get<string>(`username:${cleanId}`);
+    if (!userId) {
+       // Legacy check
+       const oldUser = await redis.get<any>(`user:${cleanId}`);
+       if (oldUser) userId = oldUser.id; // Assume migrated or partial state
+       else return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // B. Validation
-    if (!userId && !requiresMigration) {
-      const dummyHash = await bcrypt.hash('dummy', 10);
-      await bcrypt.compare(password, dummyHash);
+    const user = await redis.get<UserProfile>(`user:${userId}`);
+    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // C. Get Profile (New System)
-    if (userId) {
-      userProfile = await redis.get<UserProfile>(`user:${userId}`);
-    } else if (requiresMigration && oldUserPayload) {
-      // Use old payload for password check
-      userProfile = { 
-         ...oldUserPayload, 
-         id: oldUserPayload.id || uuidv4(), // Should have ID, but fallback
-         passwordHash: oldUserPayload.passwordHash 
-      } as UserProfile;
-    }
-
-    if (!userProfile) return res.status(401).json({ error: 'Invalid credentials' });
-
-    const isMatch = await bcrypt.compare(password, userProfile.passwordHash);
-    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials' });
-
-    // D. Execute Migration if needed
-    if (requiresMigration && oldUserPayload) {
-       console.log(`Migrating user: ${cleanId}`);
-       const newUid = userProfile.id;
-       
-       // Atomic claim for migration too
-       const newUsername = await generateAndClaimUniqueUsername(cleanId, newUid);
-       
-       // Clean old data structure
-       const oldTasks = oldUserPayload.data?.tasks || [];
-       const oldHistory = oldUserPayload.data?.history || [];
-       
-       const newUserProfile: UserProfile = {
-         id: newUid,
-         email: cleanId,
-         username: newUsername,
-         usernameChangeCount: 0,
-         passwordHash: oldUserPayload.passwordHash,
-         createdAt: oldUserPayload.createdAt || Date.now(),
-         settings: oldUserPayload.settings || { themeId: 'neon-blue', soundEnabled: true, language: 'en' }
-       };
-
-       // Save New Structure
-       await redis.set(`user:${newUid}`, newUserProfile);
-       await redis.set(`email:${cleanId}`, newUid);
-       // Username key set by helper
-       
-       // Handle Tasks Migration via helper logic or direct
-       if (oldTasks.length > 0) {
-          // Manually migrate here 
-          const hashData: Record<string, string> = {};
-          const orderIds: string[] = [];
-          oldTasks.forEach((t: any) => {
-             const cleanT = {
-                id: t.id,
-                title: t.title,
-                description: t.description || '',
-                isCompleted: t.isCompleted,
-                completedAt: t.lastCompletedDate ? new Date(t.lastCompletedDate).getTime() : null,
-                createdAt: t.createdAt || Date.now()
-             };
-             hashData[t.id] = JSON.stringify(cleanT);
-             orderIds.push(t.id);
-          });
-          await redis.hset(`data:tasks:${newUid}`, hashData);
-          await redis.set(`data:tasks:order:${newUid}`, orderIds);
-       }
-
-       await redis.set(`data:history:${newUid}`, oldHistory);
-       
-       // Delete Old Key
-       await redis.del(`user:${cleanId}`);
-
-       userId = newUid;
-       userProfile = newUserProfile;
-    }
-
-    // E. Fetch Data (Separated Collections with Hash support)
-    const tasks = await getTasks(userId!); 
-    const history = await redis.get<DailyStat[]>(`data:history:${userId}`) || [];
-
-    const token = jwt.sign({ uid: userProfile.id, email: userProfile.email }, JWT_SECRET, { expiresIn: '30d' });
+    const token = jwt.sign({ uid: user.id, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
     setAuthCookie(res, token);
-
-    return res.status(200).json({ 
-      success: true, 
-      user: { 
-        email: userProfile.email,
-        username: userProfile.username,
-        usernameChangeCount: userProfile.usernameChangeCount,
-        settings: userProfile.settings,
-        data: { tasks, history }
-      } 
-    });
-
+    return res.status(200).json({ success: true, user });
   } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Server error' });
   }
 });
 
-// 3. Logout
 app.post('/api/auth/logout', (req: any, res: any) => {
-  res.clearCookie('auth_session', { httpOnly: true, secure: IS_PROD, sameSite: 'strict', path: '/' });
+  res.clearCookie('auth_session');
   return res.status(200).json({ message: 'Logged out' });
 });
 
-// 4. Me (Get Full Data)
 app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
-  const authReq = req as AuthRequest;
-  if (!authReq.user) return res.status(401).json({ error: 'Unauthorized' });
-
-  const userId = authReq.user.uid;
+  const userId = req.user.uid;
   const user = await redis.get<UserProfile>(`user:${userId}`);
-
   if (!user) return res.status(404).json({ error: 'User not found' });
-
-  // Fetch separate collections with Hash logic
   const tasks = await getTasks(userId);
-  const history = await redis.get<DailyStat[]>(`data:history:${userId}`) || [];
-
-  return res.status(200).json({ 
-    isAuthenticated: true, 
-    user: { 
-      email: user.email,
-      username: user.username,
-      usernameChangeCount: user.usernameChangeCount || 0,
-      settings: user.settings,
-      data: { tasks, history }
-    } 
-  });
+  const history = await redis.get(`data:history:${userId}`) || [];
+  return res.status(200).json({ isAuthenticated: true, user: { ...user, data: { tasks, history } } });
 });
 
-// 5. Update Settings & Profile
+// --- PERSONAL DATA SYNC ---
+app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
+  const userId = req.user.uid;
+  const { tasks, history, order, forceEmpty } = req.body;
+
+  if (tasks && Array.isArray(tasks)) await saveTasks(userId, tasks, !!forceEmpty);
+  if (history && Array.isArray(history)) await redis.set(`data:history:${userId}`, history);
+  if (order && Array.isArray(order)) await redis.set(`data:tasks:order:${userId}`, order);
+
+  return res.status(200).json({ success: true });
+});
+
 app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) => {
-  const authReq = req as AuthRequest;
-  const userId = authReq.user?.uid;
+  const userId = req.user.uid;
   const user = await redis.get<UserProfile>(`user:${userId}`);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user) return res.status(404).json({});
 
   const { themeId, soundEnabled, language, username } = req.body;
 
-  // Handle Username Change
   if (username && username.toLowerCase() !== user.username.toLowerCase()) {
-     const cleanUser = username.toLowerCase();
-     const formatCheck = usernameSchema.safeParse(username);
-     if (!formatCheck.success) return res.status(400).json({ error: 'Invalid username format' });
-     
-     const count = user.usernameChangeCount || 0;
-     if (count >= 3) return res.status(403).json({ error: 'Max username changes reached' });
-     
-     // Atomic Claim: Try to set new username key with NX (Not Exists)
-     // This prevents the race condition where we check exists(), then someone else takes it, then we set()
-     const claimed = await redis.set(`username:${cleanUser}`, userId, { nx: true });
-     
-     if (!claimed) {
-        return res.status(409).json({ error: 'Username taken' });
-     }
-
-     // Clean up old username
+     const claimed = await redis.set(`username:${username.toLowerCase()}`, userId, { nx: true });
+     if (!claimed) return res.status(409).json({ error: 'Username taken' });
      await redis.del(`username:${user.username.toLowerCase()}`); 
-     
      user.username = username;
-     user.usernameChangeCount = count + 1;
+     user.usernameChangeCount = (user.usernameChangeCount || 0) + 1;
   }
 
   user.settings = { 
-    themeId: themeId || user.settings?.themeId || 'neon-blue', 
-    soundEnabled: soundEnabled ?? user.settings?.soundEnabled ?? true,
-    language: language || user.settings?.language || 'en'
+    themeId: themeId || user.settings.themeId, 
+    soundEnabled: soundEnabled ?? user.settings.soundEnabled,
+    language: language || user.settings.language
+  };
+  await redis.set(`user:${userId}`, user);
+  return res.status(200).json({ success: true, settings: user.settings, username: user.username });
+});
+
+// --- GROUPS API ---
+
+// Create Group
+app.post('/api/groups', requireAuth as any, async (req: any, res: any) => {
+  try {
+    const { name } = groupSchema.parse(req.body);
+    const userId = req.user.uid;
+    const groupId = uuidv4();
+
+    const group: Group = { id: groupId, name, ownerId: userId, createdAt: Date.now() };
+
+    // Atomic Multi transaction
+    const pipeline = redis.pipeline();
+    pipeline.hset(`group:${groupId}:meta`, group);
+    pipeline.sadd(`group:${groupId}:members`, userId);
+    pipeline.sadd(`user:${userId}:groups`, groupId);
+    await pipeline.exec();
+
+    return res.status(201).json(group);
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to create group' });
+  }
+});
+
+// Get My Groups
+app.get('/api/groups', requireAuth as any, async (req: any, res: any) => {
+  const userId = req.user.uid;
+  const groupIds = await redis.smembers(`user:${userId}:groups`);
+  
+  if (groupIds.length === 0) return res.json([]);
+
+  const pipeline = redis.pipeline();
+  groupIds.forEach(gid => pipeline.hgetall(`group:${gid}:meta`));
+  const groups = await pipeline.exec();
+  
+  return res.json(groups.filter(g => g !== null));
+});
+
+// Join Group (by Username Invite - simplistic implementation)
+app.post('/api/groups/:id/invite', requireAuth as any, async (req: any, res: any) => {
+  const { username } = req.body;
+  const groupId = req.params.id;
+  const targetId = await redis.get<string>(`username:${username.toLowerCase()}`);
+  
+  if (!targetId) return res.status(404).json({ error: 'User not found' });
+
+  const pipeline = redis.pipeline();
+  pipeline.sadd(`group:${groupId}:members`, targetId);
+  pipeline.sadd(`user:${targetId}:groups`, groupId);
+  await pipeline.exec();
+
+  return res.json({ success: true });
+});
+
+// --- GROUP TASKS (ATOMIC) ---
+
+// Get Group Tasks
+app.get('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  
+  // Verify membership
+  const isMember = await redis.sismember(`group:${groupId}:members`, req.user.uid);
+  if (!isMember) return res.status(403).json({ error: 'Not a member' });
+
+  const rawMap = await redis.hgetall<Record<string, string>>(`tasks:group:${groupId}`);
+  if (!rawMap) return res.json([]);
+
+  const tasks = Object.values(rawMap).map(s => JSON.parse(s));
+  return res.json(tasks.sort((a: any, b: any) => a.createdAt - b.createdAt));
+});
+
+// Update/Create Task (HSET)
+app.post('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const task = req.body; // Full task object
+  
+  // Tag the updater
+  const user = await redis.get<UserProfile>(`user:${req.user.uid}`);
+  task.updatedBy = user?.username || 'Unknown';
+  task.groupId = groupId;
+
+  await redis.hset(`tasks:group:${groupId}`, { [task.id]: JSON.stringify(task) });
+  return res.json(task);
+});
+
+// Delete Task (HDEL)
+app.delete('/api/groups/:id/tasks/:taskId', requireAuth as any, async (req: any, res: any) => {
+  const { id, taskId } = req.params;
+  await redis.hdel(`tasks:group:${id}`, taskId);
+  return res.json({ success: true });
+});
+
+// --- REAL-TIME CHAT (POLLING) ---
+
+app.get('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  // Get last 50 messages
+  const raw = await redis.lrange<string>(`chat:${groupId}:messages`, -50, -1);
+  const messages = raw.map(s => JSON.parse(s));
+  return res.json(messages);
+});
+
+app.post('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const { text } = req.body;
+  const user = await redis.get<UserProfile>(`user:${req.user.uid}`);
+  
+  const msg: ChatMessage = {
+    id: uuidv4(),
+    sender: user?.username || 'Anon',
+    text,
+    timestamp: Date.now()
   };
 
-  await redis.set(`user:${userId}`, user);
-
-  return res.status(200).json({ 
-    success: true, 
-    settings: user.settings, 
-    username: user.username, 
-    usernameChangeCount: user.usernameChangeCount 
-  });
-});
-
-// 6. Check Username Availability (Real-time)
-app.get('/api/auth/check-username', async (req: any, res: any) => {
-  const { username } = req.query;
+  await redis.rpush(`chat:${groupId}:messages`, JSON.stringify(msg));
+  // Trim to keep only last 200 messages to save space
+  await redis.ltrim(`chat:${groupId}:messages`, -200, -1);
   
-  if (!username || typeof username !== 'string') {
-    return res.status(400).json({ error: 'Username required' });
-  }
-
-  const cleanUser = username.toLowerCase();
-  
-  // Basic Format Check
-  if (cleanUser.length < 3 || cleanUser.length > 20 || !/^[a-zA-Z0-9_]+$/.test(cleanUser)) {
-      return res.json({ available: false, reason: 'Invalid format' });
-  }
-
-  const exists = await redis.exists(`username:${cleanUser}`);
-  return res.json({ available: !exists });
-});
-
-
-// 7. Sync Data (Tasks via Hash, Order via String, History separate)
-app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
-  const authReq = req as AuthRequest;
-  const userId = authReq.user?.uid;
-  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-  
-  const { tasks, history, order, forceEmpty } = req.body;
-
-  if (tasks && Array.isArray(tasks)) {
-    await saveTasks(userId, tasks, !!forceEmpty);
-  }
-
-  if (history && Array.isArray(history)) {
-    await redis.set(`data:history:${userId}`, history);
-  }
-  
-  // Handle Order separately
-  if (order && Array.isArray(order)) {
-    await redis.set(`data:tasks:order:${userId}`, order);
-  }
-
-  return res.status(200).json({ success: true });
+  return res.json(msg);
 });
 
 export default app;
