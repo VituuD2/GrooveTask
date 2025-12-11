@@ -104,9 +104,10 @@ async function generateUniqueUsername(email: string): Promise<string> {
   return candidate;
 }
 
-// Helper: Get Tasks (Handles migration from String Array to Hash)
+// Helper: Get Tasks (Handles migration from String Array to Hash & Sorting)
 async function getTasks(uid: string): Promise<Task[]> {
   const key = `data:tasks:${uid}`;
+  const orderKey = `data:tasks:order:${uid}`;
   const type = await redis.type(key);
 
   // Migration: If currently stored as a JSON string (old format), convert to Hash
@@ -120,10 +121,14 @@ async function getTasks(uid: string): Promise<Task[]> {
     // Convert to Hash map and store
     if (tasks.length > 0) {
       const hashData: Record<string, string> = {};
+      const orderIds: string[] = [];
       tasks.forEach(t => {
         hashData[t.id] = JSON.stringify(t);
+        orderIds.push(t.id);
       });
       await redis.hset(key, hashData);
+      // Also save the order from the array
+      await redis.set(orderKey, orderIds);
     }
     return tasks;
   } 
@@ -134,7 +139,7 @@ async function getTasks(uid: string): Promise<Task[]> {
     if (!rawMap) return [];
     
     // Values are JSON strings, parse them back to objects
-    return Object.values(rawMap)
+    const tasks = Object.values(rawMap)
       .map(val => {
         try {
           return typeof val === 'string' ? JSON.parse(val) : val;
@@ -143,6 +148,32 @@ async function getTasks(uid: string): Promise<Task[]> {
         }
       })
       .filter((t): t is Task => t !== null);
+
+    // Fetch Order to sort tasks
+    const order = await redis.get<string[]>(orderKey);
+    
+    if (order && Array.isArray(order)) {
+      const taskMap = new Map(tasks.map(t => [t.id, t]));
+      const sortedTasks: Task[] = [];
+      
+      // 1. Add tasks in order
+      order.forEach(id => {
+        const t = taskMap.get(id);
+        if (t) {
+          sortedTasks.push(t);
+          taskMap.delete(id); // Remove from map so we know what's left
+        }
+      });
+      
+      // 2. Append any remaining tasks (orphans not in order list)
+      // Sort them by creation date to be deterministic
+      const remaining = Array.from(taskMap.values()).sort((a, b) => a.createdAt - b.createdAt);
+      
+      return [...sortedTasks, ...remaining];
+    }
+    
+    // If no order key exists, sort by createdAt default
+    return tasks.sort((a, b) => a.createdAt - b.createdAt);
   }
 
   // If 'none' or other, return empty array
@@ -176,11 +207,6 @@ async function saveTasks(uid: string, tasks: any[]) {
   }
 
   // Sync Strategy:
-  // 1. Get existing keys to identify deletions
-  // 2. Update/Add new tasks
-  // 3. Delete missing tasks
-  // Note: This assumes the client sends the *full* list of active tasks.
-  
   const currentIds = await redis.hkeys(key);
   const newIdsSet = new Set(cleanTasks.map(t => t.id));
   
@@ -286,8 +312,7 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
     await redis.set(`email:${cleanEmail}`, userId);
     await redis.set(`username:${username.toLowerCase()}`, userId);
     
-    // We do NOT set data:tasks as [] anymore because that creates a String type key.
-    // Hashes are created on demand when fields are added.
+    // Initialize History (Hash for tasks is auto-created, Order key auto-created on save)
     await redis.set(`data:history:${userId}`, []);
 
     const token = jwt.sign({ uid: userId, email: cleanEmail }, JWT_SECRET, { expiresIn: '30d' });
@@ -389,9 +414,9 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
        
        // Handle Tasks Migration via helper logic or direct
        if (oldTasks.length > 0) {
-          // Manually migrate here to avoid 'getTasks' complexity inside login flow
-          // But ensure normalized dates
+          // Manually migrate here 
           const hashData: Record<string, string> = {};
+          const orderIds: string[] = [];
           oldTasks.forEach((t: any) => {
              const cleanT = {
                 id: t.id,
@@ -402,8 +427,10 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
                 createdAt: t.createdAt || Date.now()
              };
              hashData[t.id] = JSON.stringify(cleanT);
+             orderIds.push(t.id);
           });
           await redis.hset(`data:tasks:${newUid}`, hashData);
+          await redis.set(`data:tasks:order:${newUid}`, orderIds);
        }
 
        await redis.set(`data:history:${newUid}`, oldHistory);
@@ -416,7 +443,7 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
     }
 
     // E. Fetch Data (Separated Collections with Hash support)
-    const tasks = await getTasks(userId!); // Use '!' as logic ensures userId exists here
+    const tasks = await getTasks(userId!); 
     const history = await redis.get<DailyStat[]>(`data:history:${userId}`) || [];
 
     const token = jwt.sign({ uid: userProfile.id, email: userProfile.email }, JWT_SECRET, { expiresIn: '30d' });
@@ -483,27 +510,19 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
   // Handle Username Change
   if (username && username.toLowerCase() !== user.username.toLowerCase()) {
      const cleanUser = username.toLowerCase();
-     
-     // Validate Format
      const formatCheck = usernameSchema.safeParse(username);
      if (!formatCheck.success) return res.status(400).json({ error: 'Invalid username format' });
-
-     // Check Limits
      const count = user.usernameChangeCount || 0;
      if (count >= 3) return res.status(403).json({ error: 'Max username changes reached' });
-
-     // Check Uniqueness
      const exists = await redis.exists(`username:${cleanUser}`);
      if (exists) return res.status(409).json({ error: 'Username taken' });
 
-     // Perform Change
-     await redis.del(`username:${user.username.toLowerCase()}`); // Remove old index
-     await redis.set(`username:${cleanUser}`, userId); // Add new index
-     user.username = username; // We save the display version (cased) but index is lowercase
+     await redis.del(`username:${user.username.toLowerCase()}`); 
+     await redis.set(`username:${cleanUser}`, userId);
+     user.username = username;
      user.usernameChangeCount = count + 1;
   }
 
-  // Update other settings
   user.settings = { 
     themeId: themeId || user.settings?.themeId || 'neon-blue', 
     soundEnabled: soundEnabled ?? user.settings?.soundEnabled ?? true,
@@ -520,13 +539,13 @@ app.post('/api/user/settings', requireAuth as any, async (req: any, res: any) =>
   });
 });
 
-// 6. Sync Data (Tasks via Hash & History separate)
+// 6. Sync Data (Tasks via Hash, Order via String, History separate)
 app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
   const authReq = req as AuthRequest;
   const userId = authReq.user?.uid;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   
-  const { tasks, history } = req.body;
+  const { tasks, history, order } = req.body;
 
   if (tasks && Array.isArray(tasks)) {
     await saveTasks(userId, tasks);
@@ -534,6 +553,11 @@ app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
 
   if (history && Array.isArray(history)) {
     await redis.set(`data:history:${userId}`, history);
+  }
+  
+  // Handle Order separately
+  if (order && Array.isArray(order)) {
+    await redis.set(`data:tasks:order:${userId}`, order);
   }
 
   return res.status(200).json({ success: true });

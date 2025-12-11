@@ -233,7 +233,7 @@ function App() {
   };
 
   // --- Async Sync Handler ---
-  // This replaces the old useEffect. It is called explicitly for optimistic UI.
+  // Called for Content Updates (Creates/Edits/Deletes)
   const persistData = async (newTasks: Task[], newHistory: DailyStat[]) => {
     // 1. Save Local Storage Always
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: newTasks, history: newHistory }));
@@ -241,17 +241,38 @@ function App() {
     // 2. Sync Remote if Logged In
     if (isLoggedIn && !isRemoteUpdate.current) {
        try {
+         const order = newTasks.map(t => t.id); // Extract order
          const res = await fetch('/api/user/data', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ tasks: newTasks, history: newHistory })
+           body: JSON.stringify({ tasks: newTasks, history: newHistory, order }) // Send order too
          });
          if (!res.ok) throw new Error("Sync failed");
        } catch (err) {
-         // Rethrow to let the optimistic handler know it failed
          throw err;
        }
     }
+  };
+
+  // Called ONLY for Reordering (Optimized payload)
+  const persistOrderOnly = async (newTasks: Task[]) => {
+      // Update local storage to stay in sync
+      const currentHistory = history; 
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: newTasks, history: currentHistory }));
+      
+      if (isLoggedIn && !isRemoteUpdate.current) {
+          try {
+            const order = newTasks.map(t => t.id);
+            const res = await fetch('/api/user/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order }) // ONLY SEND ORDER
+            });
+            if (!res.ok) throw new Error("Order sync failed");
+          } catch (err) {
+            throw err;
+          }
+      }
   };
 
   // --- Effects for Saving Settings Only ---
@@ -482,13 +503,11 @@ function App() {
   // Handle Sortable Change (Reorder)
   const handleSortEnd = async () => {
     // tasks array is already mutated by ReactSortable
-    // We just need to persist the new order
+    // We just need to persist the new order (only order)
     try {
-      await persistData(tasks, history);
+      await persistOrderOnly(tasks);
     } catch (error) {
       addToast("Failed to save order", "error");
-      // Rolling back sort is tricky without a specific previous snapshot stored before sort start, 
-      // but for reordering, silent failure is often acceptable or we could force a reload.
     }
   };
 
