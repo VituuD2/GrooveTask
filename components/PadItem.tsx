@@ -45,7 +45,7 @@ const PadItem: React.FC<PadItemProps> = ({
       className={`
         pad-item relative group aspect-square rounded-2xl transition-transform duration-200 ease-out
         flex flex-col justify-between p-4 cursor-pointer overflow-hidden
-        border-2 select-none touch-pan-y
+        border-2 select-none
         ${isGhost ? 'ghost-item scale-105 bg-zinc-800' : ''}
         ${isDragging ? 'opacity-30' : 'opacity-100'}
         ${task.isCompleted 
@@ -70,101 +70,72 @@ const PadItem: React.FC<PadItemProps> = ({
       </div>
 
       {/* Drag Grip (Visible on Hover/Ghost) */}
-      <div className="absolute top-1/2 left-4 -translate-y-1/2 opacity-0 group-hover:opacity-30 transition-opacity">
-         <GripVertical size={20} className="text-zinc-400" />
+      <div className="absolute top-4 left-4 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing">
+         <GripVertical size={16} />
       </div>
 
-      {/* Active Indicator Light */}
-      <div 
-        className={`absolute top-4 left-4 w-2 h-2 rounded-full transition-colors duration-300 ${task.isCompleted ? 'animate-pulse' : 'bg-zinc-700'}`}
-        style={{ backgroundColor: task.isCompleted ? themeColor : undefined }}
-      />
-
-      {/* Actions Top Right */}
-      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
-        {/* Info Button */}
-        <button 
-          onClick={(e) => {
-            e.stopPropagation();
-            onViewInfo(task);
-          }}
-          className="action-btn p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-full transition-colors"
-          title={t.viewDetails}
-        >
-          <Info size={16} />
-        </button>
-        
-        {/* Delete Button */}
-        <button 
-          onClick={(e) => {
-            e.stopPropagation(); 
-            onDelete(task.id);
-          }}
-          className="action-btn p-1.5 text-zinc-400 hover:bg-red-500/20 hover:text-red-500 rounded-full transition-colors"
-          title={t.delete}
-        >
-          <X size={16} />
-        </button>
-
-        {/* Menu Button */}
-        <div className="relative">
-          <button 
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowMenu(!showMenu);
-            }}
-            className="action-btn p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-full transition-colors"
-          >
-            <MoreVertical size={16} />
-          </button>
-          
-          {showMenu && (
+      {/* Content */}
+      <div className="mt-auto z-10 relative">
+         <div className="flex items-end justify-between gap-2">
+            <h3 className={`font-bold text-lg leading-tight line-clamp-2 ${task.isCompleted ? 'text-zinc-500 line-through decoration-2' : 'text-white'}`} style={{ textDecorationColor: task.isCompleted ? themeColor : undefined }}>
+               {task.title}
+            </h3>
+            
             <div 
-              className="menu-container absolute right-0 mt-2 w-32 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl z-20 py-1 overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
+              className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center border transition-all ${task.isCompleted ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-900/50 border-zinc-700'}`}
+              style={{ borderColor: task.isCompleted ? themeColor : undefined, color: task.isCompleted ? themeColor : '#71717a' }}
             >
-              <button 
-                className="action-btn w-full text-left px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white"
-                onClick={(e) => { 
-                  e.stopPropagation();
-                  setShowMenu(false); 
-                  onEdit(task); 
-                }}
-              >
-                {t.edit}
-              </button>
+              {task.isCompleted ? <Check size={16} strokeWidth={3} /> : <Play size={14} fill="currentColor" className="ml-0.5" />}
             </div>
-          )}
-        </div>
+         </div>
+         {task.description && (
+            <div className="mt-1 flex items-center gap-1">
+               <div className="h-1 w-1 rounded-full bg-zinc-600" />
+               <span className="text-[10px] text-zinc-500 font-medium truncate max-w-full">{t.viewDetails}</span>
+            </div>
+         )}
       </div>
 
+      {/* Menu Button */}
+      <button 
+        onClick={(e) => {
+           e.stopPropagation();
+           setShowMenu(!showMenu);
+        }}
+        className="action-btn absolute top-2 right-2 p-2 text-zinc-600 hover:text-white rounded-lg hover:bg-zinc-700/50 opacity-0 group-hover:opacity-100 transition-all z-20"
+      >
+        <MoreVertical size={16} />
+      </button>
+
+      {/* Menu Dropdown */}
       {showMenu && (
-        <div 
-          className="fixed inset-0 z-0 cursor-default" 
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowMenu(false);
-          }} 
-        />
+        <div className="menu-container absolute top-10 right-2 w-32 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl z-30 overflow-hidden animate-in fade-in zoom-in-95 duration-100" onClick={e => e.stopPropagation()}>
+           <button 
+             onClick={() => { setShowMenu(false); onViewInfo(task); }}
+             className="w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white flex items-center gap-2"
+           >
+             <Info size={12} /> {t.viewDetails}
+           </button>
+           <button 
+             onClick={() => { setShowMenu(false); onEdit(task); }}
+             className="w-full text-left px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-white flex items-center gap-2"
+           >
+             <span className="w-3 h-3 flex items-center justify-center border border-zinc-500 rounded-[2px] text-[8px]">E</span> {t.edit}
+           </button>
+           <div className="h-px bg-zinc-800 my-1" />
+           <button 
+             onClick={() => { setShowMenu(false); onDelete(task.id); }}
+             className="w-full text-left px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-900/20 hover:text-red-300 flex items-center gap-2"
+           >
+             <X size={12} /> {t.delete}
+           </button>
+        </div>
       )}
 
-      {/* Center Content */}
-      <div className="flex-1 flex items-center justify-center text-center mt-4 pointer-events-none">
-        {task.isCompleted ? (
-           <Check size={48} style={{ color: themeColor }} className="opacity-50" />
-        ) : (
-           <Play size={32} className="text-zinc-600 opacity-20 group-hover:opacity-40 transition-opacity" />
-        )}
-      </div>
-
-      {/* Bottom Text */}
-      <div className="mt-2 pointer-events-none">
-        <h3 
-          className={`font-semibold text-lg leading-tight line-clamp-2 select-none transition-colors duration-300 ${task.isCompleted ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}
-        >
-          {task.title}
-        </h3>
-      </div>
+      {/* Backdrop for Menu */}
+      {showMenu && (
+         <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+      )}
     </div>
   );
 };

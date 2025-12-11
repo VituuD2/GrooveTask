@@ -58,6 +58,7 @@ function App() {
   const isDraggingRef = useRef(false);
   const justDraggedRef = useRef(false);
   const pointerStartRef = useRef<{x: number, y: number} | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
 
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -177,6 +178,7 @@ function App() {
     dragStartIndexRef.current = index;
     isDraggingRef.current = false;
     pointerStartRef.current = { x: e.clientX, y: e.clientY };
+    pointerIdRef.current = e.pointerId;
     
     const target = e.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
@@ -187,12 +189,22 @@ function App() {
       setDraggingIndex(index);
       setGhostDimensions({ width: rect.width, height: rect.height });
       setGhostPos({ x: e.clientX - rect.width/2, y: e.clientY - rect.height/2 });
+      
       if (navigator.vibrate) navigator.vibrate(50); // Haptic feedback
+
+      // Capture pointer to prevent scrolling on mobile once drag starts
+      const el = document.querySelector(`[data-index="${index}"]`);
+      if (el && pointerIdRef.current !== null) {
+          try {
+             (el as HTMLElement).setPointerCapture(pointerIdRef.current);
+          } catch (e) {
+             // Ignore error if pointer is invalid
+          }
+      }
     };
 
     if (e.pointerType === 'mouse') {
       // Mouse drags immediately if moved, but we wait for move event to confirm intent
-      // We don't block click yet
     } else {
       // Touch requires long press to avoid scrolling conflict
       longPressTimeoutRef.current = setTimeout(startDrag, 400);
@@ -221,6 +233,10 @@ function App() {
         if (el) {
           const rect = el.getBoundingClientRect();
           setGhostDimensions({ width: rect.width, height: rect.height });
+          // Also capture mouse for consistency
+          try {
+             (el as HTMLElement).setPointerCapture(e.pointerId);
+          } catch(err) {}
         }
       }
 
@@ -258,7 +274,7 @@ function App() {
       }
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
       if (longPressTimeoutRef.current) {
         clearTimeout(longPressTimeoutRef.current);
       }
@@ -273,12 +289,23 @@ function App() {
         setDraggingIndex(null);
         setGhostPos(null);
         if (soundEnabled) playSound('click'); // Drop sound
+        
+        // Release capture
+        try {
+            const el = document.querySelector(`[data-index="${dragStartIndexRef.current}"]`);
+            if (el) {
+                (el as HTMLElement).releasePointerCapture(e.pointerId);
+            }
+        } catch (err) {
+            // Ignore
+        }
       }
 
       isDraggingRef.current = false;
       dragItemRef.current = null;
       dragStartIndexRef.current = null;
       pointerStartRef.current = null;
+      pointerIdRef.current = null;
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
@@ -778,12 +805,12 @@ function App() {
                       type="text" 
                       value={formTitle}
                       onChange={(e) => setFormTitle(e.target.value)}
-                      maxLength={40}
+                      maxLength={50}
                       placeholder={t.titlePlaceholder}
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-zinc-900"
                       style={{ '--tw-ring-color': theme.hex } as React.CSSProperties}
                     />
-                    <p className="text-xs text-right text-zinc-600 mt-1">{formTitle.length}/40</p>
+                    <p className="text-xs text-right text-zinc-600 mt-1">{formTitle.length}/50</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-zinc-400 mb-1">{t.description}</label>
