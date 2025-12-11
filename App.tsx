@@ -567,42 +567,60 @@ function App() {
               <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">{t.createOne}</button>
             </div>
           ) : (
-            <ReactSortable
-              list={tasks}
-              setList={setTasks}
-              animation={200}
-              delay={0}
-              disabled={!isReordering} // Only enable drag in Reorder mode
-              ghostClass="sortable-ghost"
-              dragClass="sortable-drag"
-              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24"
-            >
-              {tasks.map((task, index) => (
-                <PadItem 
-                  key={task.id} 
-                  index={index}
-                  task={task} 
-                  themeColor={theme.hex} 
-                  themeShadow={theme.shadow}
-                  onToggle={handleToggleTask}
-                  onEdit={openEditModal}
-                  onDelete={handleDeleteRequest}
-                  onViewInfo={openInfoModal}
-                  isReordering={isReordering} // Pass edit mode prop
-                />
-              ))}
-              
-              {!isReordering && (
-                <button 
-                  key="create-btn"
-                  onClick={openCreateModal}
-                  className="static-btn aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
+            <>
+              {isReordering ? (
+                <ReactSortable
+                  list={tasks}
+                  setList={setTasks}
+                  animation={200}
+                  delay={0}
+                  ghostClass="sortable-ghost"
+                  dragClass="sortable-drag"
+                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24"
                 >
-                  <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
-                  <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">{t.create}</span>
-                </button>
+                  {tasks.map((task, index) => (
+                    <PadItem 
+                      key={task.id} 
+                      index={index}
+                      task={task} 
+                      themeColor={theme.hex} 
+                      themeShadow={theme.shadow}
+                      onToggle={handleToggleTask}
+                      onEdit={openEditModal}
+                      onDelete={handleDeleteRequest}
+                      onViewInfo={openInfoModal}
+                      isReordering={true}
+                    />
+                  ))}
+                </ReactSortable>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6 auto-rows-min pb-24">
+                  {tasks.map((task, index) => (
+                    <PadItem 
+                      key={task.id} 
+                      index={index}
+                      task={task} 
+                      themeColor={theme.hex} 
+                      themeShadow={theme.shadow}
+                      onToggle={handleToggleTask}
+                      onEdit={openEditModal}
+                      onDelete={handleDeleteRequest}
+                      onViewInfo={openInfoModal}
+                      isReordering={false}
+                    />
+                  ))}
+                  
+                  <button 
+                    key="create-btn"
+                    onClick={openCreateModal}
+                    className="static-btn aspect-square rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-600 hover:bg-zinc-900 transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer"
+                  >
+                    <Plus size={32} className="text-zinc-700 group-hover:text-zinc-400 transition-colors" />
+                    <span className="text-zinc-700 font-medium group-hover:text-zinc-400 transition-colors">{t.create}</span>
+                  </button>
+                </div>
               )}
-            </ReactSortable>
+            </>
           )}
         </main>
       </div>
