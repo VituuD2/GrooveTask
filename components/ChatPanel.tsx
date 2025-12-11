@@ -4,7 +4,16 @@ import { Send, MessageSquare } from 'lucide-react';
 import { ChatMessage, UserProfile } from '../types';
 import { playSound } from '../services/audio';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+const fetcher = async (url: string) => {
+  try {
+    const res = await fetch(url);
+    if (res.status === 401) return [];
+    if (!res.ok) throw new Error('Failed to fetch');
+    return await res.json();
+  } catch (e) {
+    return [];
+  }
+};
 
 interface ChatPanelProps {
   groupId: string;
@@ -20,7 +29,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, currentUser, themeColor 
   const { data: messages, mutate } = useSWR<ChatMessage[]>(
     groupId ? `/api/groups/${groupId}/chat` : null, 
     fetcher, 
-    { refreshInterval: 2000 }
+    { refreshInterval: 2000, fallbackData: [] }
   );
 
   useEffect(() => {

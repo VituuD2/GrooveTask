@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import useSWR, { mutate } from 'swr';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, User, LogOut, Check, LayoutGrid, Info, UserPlus, Save, Globe, Edit2, Loader2, AlertCircle, Clock, Trash2 } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, User, LogOut, Check, LayoutGrid, Info, UserPlus, Save, Globe, Edit2, Loader2, AlertCircle, Clock, Trash2, GripVertical } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import ReactSortablePkg from 'react-sortablejs';
+// Handle ESM/CommonJS import differences for Sortable
 const ReactSortable = (ReactSortablePkg as any).ReactSortable || ReactSortablePkg;
 
 import { Task, AppState, DailyStat, ThemeColor, TaskType, UserProfile, Group } from './types';
@@ -21,9 +22,20 @@ import Sidebar from './components/Sidebar';
 import ChatPanel from './components/ChatPanel';
 import CreateGroupModal from './components/CreateGroupModal';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+// Robust fetcher that handles 401s and ensures arrays are returned for lists
+const fetcher = async (url: string) => {
+  try {
+    const res = await fetch(url);
+    if (res.status === 401) return []; // Return empty list on unauthorized
+    if (!res.ok) throw new Error('Failed to fetch');
+    return await res.json();
+  } catch (e) {
+    return []; // Fallback to empty array on error
+  }
+};
 
 const INITIAL_STATE: AppState = { tasks: [], history: [] };
+const MAX_USERNAME_CHANGES = 3;
 
 function App() {
   const { t, language, setLanguage } = useLanguage();
@@ -42,10 +54,11 @@ function App() {
   const { data: groupTasks, mutate: mutateGroupTasks } = useSWR<Task[]>(
     activeGroupId ? `/api/groups/${activeGroupId}/tasks` : null,
     fetcher,
-    { refreshInterval: 2000 }
+    { refreshInterval: 2000, fallbackData: [] }
   );
 
-  const activeTasks = view === 'personal' ? personalTasks : (groupTasks || []);
+  // Derived state for safe rendering
+  const activeTasks = view === 'personal' ? personalTasks : (Array.isArray(groupTasks) ? groupTasks : []);
 
   const [theme, setTheme] = useState<ThemeColor>(THEME_COLORS[0]);
   const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -105,8 +118,8 @@ function App() {
     if (savedData && !isLoggedIn) {
       try {
         const parsed = JSON.parse(savedData);
-        setPersonalTasks(parsed.tasks || []);
-        setHistory(parsed.history || []);
+        setPersonalTasks(Array.isArray(parsed.tasks) ? parsed.tasks : []);
+        setHistory(Array.isArray(parsed.history) ? parsed.history : []);
       } catch (e) {
         console.error("Failed to parse local storage");
       }
@@ -129,8 +142,17 @@ function App() {
   useEffect(() => {
     if (view === 'personal') {
        localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: personalTasks, history }));
+       // Sync order if logged in
+       if (isLoggedIn) {
+           const order = personalTasks.map(t => t.id);
+           fetch('/api/user/data', { 
+               method: 'POST', 
+               headers: {'Content-Type':'application/json'}, 
+               body: JSON.stringify({ order })
+           });
+       }
     }
-  }, [personalTasks, history, view]);
+  }, [personalTasks, history, view, isLoggedIn]);
   
   // Persist Theme/Sound
   useEffect(() => {
@@ -164,6 +186,17 @@ function App() {
 
   // --- Task Logic ---
 
+  const handleSetList = (newList: Task[]) => {
+    // ReactSortable calls this whenever items are dragged
+    if (view === 'personal') {
+      setPersonalTasks(newList);
+    } else {
+      // For groups, we optimistic update, but backend needs an order implementation
+      // For now, we just update local SWR cache
+      mutateGroupTasks(newList, false);
+    }
+  };
+
   const handleToggleTask = async (id: string) => {
     if (isReordering) return;
     const task = activeTasks.find(t => t.id === id);
@@ -182,13 +215,14 @@ function App() {
            });
            setPersonalTasks(newTasks);
            if(soundEnabled) playSound('check', 600);
+           if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
        } else {
            // Simple Logic
            const newTasks = personalTasks.map(t => t.id === id ? { ...t, isCompleted: !t.isCompleted, completedAt: !t.isCompleted ? Date.now() : null } : t);
            setPersonalTasks(newTasks);
            if (!task.isCompleted && soundEnabled) playSound('check');
+           if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
        }
-       if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: personalTasks })}); // Note: using state here might be slightly stale, better to use newTasks var but keeping concise
     } else {
        // Group Logic (Optimistic SWR)
        let updatedTask = { ...task };
@@ -237,7 +271,7 @@ function App() {
     if (view === 'personal') {
        const newTasks = [...personalTasks, newTask];
        setPersonalTasks(newTasks);
-       if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
+       if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks, order: newTasks.map(t => t.id) })});
     } else {
        if (!activeGroupId) return;
        mutateGroupTasks([...(groupTasks || []), newTask], false);
@@ -282,7 +316,7 @@ function App() {
      if (view === 'personal') {
         const newTasks = personalTasks.filter(t => t.id !== deleteTaskId);
         setPersonalTasks(newTasks);
-        if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
+        if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks, order: newTasks.map(t => t.id) })});
      } else {
         const newTasks = (groupTasks || []).filter(t => t.id !== deleteTaskId);
         mutateGroupTasks(newTasks, false);
@@ -329,6 +363,7 @@ function App() {
   };
 
   const handleSaveSettings = async () => {
+      setSettingsError(null);
       setTheme(tempTheme);
       setSoundEnabled(tempSound);
       setLanguage(tempLanguage);
@@ -346,14 +381,21 @@ function App() {
           });
           const data = await res.json();
           if(res.ok) {
-              setCurrentUser(prev => prev ? ({ ...prev, username: data.username, settings: data.settings }) : null);
+              setCurrentUser(prev => prev ? ({ 
+                  ...prev, 
+                  username: data.username, 
+                  settings: data.settings,
+                  usernameChangeCount: tempUsername !== currentUser.username ? (prev.usernameChangeCount || 0) + 1 : prev.usernameChangeCount
+              }) : null);
               addToast("Settings saved", "success");
+              setShowSettingsModal(false);
           } else {
               setSettingsError(data.error || "Failed to save");
-              return;
           }
+      } else {
+          setShowSettingsModal(false);
+          addToast("Local settings saved", "success");
       }
-      setShowSettingsModal(false);
   };
 
   const handleInvite = async () => {
@@ -373,6 +415,7 @@ function App() {
 
   // --- Render ---
   const completedToday = activeTasks.filter(t => t.isCompleted).length;
+  const remainingChanges = MAX_USERNAME_CHANGES - (currentUser?.usernameChangeCount || 0);
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans">
@@ -493,8 +536,16 @@ function App() {
                    <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">{t.createOne}</button>
                 </div>
              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-20">
-                   {/* Using Map for Grid items */}
+                <ReactSortable
+                   list={activeTasks}
+                   setList={handleSetList}
+                   animation={200}
+                   delay={10}
+                   disabled={!isReordering}
+                   ghostClass="sortable-ghost"
+                   dragClass="sortable-drag"
+                   className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-20"
+                >
                    {activeTasks.map((task, i) => (
                       <PadItem 
                         key={task.id} 
@@ -509,16 +560,18 @@ function App() {
                         isReordering={isReordering}
                       />
                    ))}
-                   
-                   {!isReordering && (
-                       <button 
-                         onClick={openCreateModal} 
-                         className="aspect-square rounded-xl border-2 border-dashed border-zinc-800 hover:bg-zinc-900 hover:border-zinc-700 flex flex-col items-center justify-center gap-2 group transition-all"
-                       >
-                          <Plus size={24} className="text-zinc-700 group-hover:text-zinc-400" />
-                          <span className="text-zinc-700 text-xs font-medium group-hover:text-zinc-400">{t.create}</span>
-                       </button>
-                   )}
+                </ReactSortable>
+             )}
+             
+             {!isReordering && activeTasks.length > 0 && (
+                <div className="fixed bottom-6 right-6 z-20">
+                    <button 
+                      onClick={openCreateModal} 
+                      className="w-14 h-14 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform hover:scale-110 active:scale-95"
+                      style={{ backgroundColor: theme.hex, boxShadow: `0 8px 30px -5px ${theme.shadow}` }}
+                    >
+                       <Plus size={32} />
+                    </button>
                 </div>
              )}
           </main>
@@ -637,7 +690,20 @@ function App() {
                  {isLoggedIn && (
                      <div className="mb-6">
                          <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">{t.username}</h3>
-                         <input value={tempUsername} onChange={e => setTempUsername(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white" />
+                         <div className="flex flex-col gap-2">
+                             <input 
+                               value={tempUsername} 
+                               onChange={e => setTempUsername(e.target.value)} 
+                               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white focus:border-white outline-none" 
+                               disabled={remainingChanges <= 0}
+                             />
+                             <div className="flex justify-between items-center text-xs">
+                                 <span className={`${remainingChanges <= 0 ? 'text-red-400' : 'text-zinc-500'}`}>
+                                    {remainingChanges} {t.changesRemaining}
+                                 </span>
+                                 {remainingChanges <= 0 && <span className="text-red-500 font-bold">Limit Reached</span>}
+                             </div>
+                         </div>
                      </div>
                  )}
 
@@ -676,9 +742,9 @@ function App() {
                      </button>
                  </div>
                  
-                 {settingsError && <div className="text-red-400 text-xs mb-4">{settingsError}</div>}
+                 {settingsError && <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-200 text-xs mb-4">{settingsError}</div>}
 
-                 <button onClick={handleSaveSettings} className="w-full py-3 rounded-xl font-bold text-white" style={{ backgroundColor: tempTheme.hex }}>{t.saveChanges}</button>
+                 <button onClick={handleSaveSettings} className="w-full py-3 rounded-xl font-bold text-white transition-opacity hover:opacity-90" style={{ backgroundColor: tempTheme.hex }}>{t.saveChanges}</button>
              </div>
          </div>
       )}

@@ -4,7 +4,16 @@ import { LayoutGrid, Users, Plus, Hash, Settings, Activity, LogOut, User } from 
 import { Group, UserProfile } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+const fetcher = async (url: string) => {
+  try {
+    const res = await fetch(url);
+    if (res.status === 401) return [];
+    if (!res.ok) throw new Error('Failed to fetch');
+    return await res.json();
+  } catch (e) {
+    return [];
+  }
+};
 
 interface SidebarProps {
   currentView: 'personal' | 'group';
@@ -31,7 +40,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   themeColor 
 }) => {
-  const { data: groups } = useSWR<Group[]>('/api/groups', fetcher);
+  const { data: groups } = useSWR<Group[]>('/api/groups', fetcher, { fallbackData: [] });
   const { t } = useLanguage();
 
   return (
@@ -65,7 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
           <div className="space-y-1">
-            {groups?.map(group => (
+            {Array.isArray(groups) && groups.map(group => (
               <button
                 key={group.id}
                 onClick={() => onNavigate('group', group.id)}
