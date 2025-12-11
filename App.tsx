@@ -59,6 +59,11 @@ function App() {
   const justDraggedRef = useRef(false);
   const pointerStartRef = useRef<{x: number, y: number} | null>(null);
   const pointerIdRef = useRef<number | null>(null);
+  
+  // Auto-Scroll Refs
+  const scrollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrollSpeedRef = useRef<number>(0);
+  const mainRef = useRef<HTMLElement | null>(null);
 
   // Delete Modal State
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
@@ -169,6 +174,62 @@ function App() {
 
   // --- Drag and Drop Logic ---
   
+  // 1. Lock Scroll when dragging
+  useEffect(() => {
+    if (draggingIndex !== null) {
+      document.body.style.overflow = 'hidden';
+      // Also lock touch action on the main container to prevent browser panning
+      if (mainRef.current) mainRef.current.style.touchAction = 'none';
+    } else {
+      document.body.style.overflow = '';
+      if (mainRef.current) mainRef.current.style.touchAction = '';
+      stopAutoScroll();
+    }
+    return () => {
+      document.body.style.overflow = '';
+      if (mainRef.current) mainRef.current.style.touchAction = '';
+      stopAutoScroll();
+    };
+  }, [draggingIndex]);
+
+  // 2. Auto Scroll Logic
+  const startAutoScroll = () => {
+    if (scrollIntervalRef.current) return;
+    scrollIntervalRef.current = setInterval(() => {
+      if (mainRef.current && scrollSpeedRef.current !== 0) {
+        mainRef.current.scrollTop += scrollSpeedRef.current;
+      }
+    }, 16); // 60fps
+  };
+
+  const stopAutoScroll = () => {
+    if (scrollIntervalRef.current) {
+      clearInterval(scrollIntervalRef.current);
+      scrollIntervalRef.current = null;
+    }
+    scrollSpeedRef.current = 0;
+  };
+
+  const updateAutoScroll = (y: number) => {
+    const threshold = 100; // px from edge
+    const maxSpeed = 15;
+    const viewportHeight = window.innerHeight;
+    
+    if (y < threshold) {
+      // Scroll Up
+      const intensity = (threshold - y) / threshold;
+      scrollSpeedRef.current = -maxSpeed * intensity;
+      startAutoScroll();
+    } else if (y > viewportHeight - threshold) {
+      // Scroll Down
+      const intensity = (y - (viewportHeight - threshold)) / threshold;
+      scrollSpeedRef.current = maxSpeed * intensity;
+      startAutoScroll();
+    } else {
+      stopAutoScroll();
+    }
+  };
+
   const handlePointerDown = (e: React.PointerEvent, task: Task, index: number) => {
     // Ignore if clicking a button inside
     if ((e.target as HTMLElement).closest('button')) return;
@@ -183,7 +244,6 @@ function App() {
     const target = e.currentTarget as HTMLElement;
     const rect = target.getBoundingClientRect();
     
-    // Function to start drag (called immediately for mouse, or after timeout for touch)
     const startDrag = () => {
       isDraggingRef.current = true;
       setDraggingIndex(index);
@@ -192,22 +252,21 @@ function App() {
       
       if (navigator.vibrate) navigator.vibrate(50); // Haptic feedback
 
-      // Capture pointer to prevent scrolling on mobile once drag starts
       const el = document.querySelector(`[data-index="${index}"]`);
       if (el && pointerIdRef.current !== null) {
           try {
              (el as HTMLElement).setPointerCapture(pointerIdRef.current);
           } catch (e) {
-             // Ignore error if pointer is invalid
+             // Ignore
           }
       }
     };
 
     if (e.pointerType === 'mouse') {
-      // Mouse drags immediately if moved, but we wait for move event to confirm intent
+      // Mouse drags immediately
     } else {
-      // Touch requires long press to avoid scrolling conflict
-      longPressTimeoutRef.current = setTimeout(startDrag, 400);
+      // Touch: 200ms hold (snappier)
+      longPressTimeoutRef.current = setTimeout(startDrag, 200);
     }
   };
 
@@ -219,33 +278,38 @@ function App() {
       const dy = e.clientY - pointerStartRef.current.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
 
-      // Cancel long press if moved significantly before timeout triggers
-      if (longPressTimeoutRef.current && dist > 10) {
-        clearTimeout(longPressTimeoutRef.current);
-        longPressTimeoutRef.current = null;
+      // Mouse drag start
+      if (e.pointerType === 'mouse' && !isDraggingRef.current && dist > 5 && dragItemRef.current) {
+         isDraggingRef.current = true;
+         setDraggingIndex(dragStartIndexRef.current);
+         const el = document.querySelector(`[data-index="${dragStartIndexRef.current}"]`);
+         if (el) {
+           const rect = el.getBoundingClientRect();
+           setGhostDimensions({ width: rect.width, height: rect.height });
+           try {
+              (el as HTMLElement).setPointerCapture(e.pointerId);
+           } catch(err) {}
+         }
       }
 
-      // If dragging hasn't started yet for mouse, start it after threshold
-      if (e.pointerType === 'mouse' && !isDraggingRef.current && dist > 5 && dragItemRef.current) {
-        isDraggingRef.current = true;
-        setDraggingIndex(dragStartIndexRef.current);
-        const el = document.querySelector(`[data-index="${dragStartIndexRef.current}"]`);
-        if (el) {
-          const rect = el.getBoundingClientRect();
-          setGhostDimensions({ width: rect.width, height: rect.height });
-          // Also capture mouse for consistency
-          try {
-             (el as HTMLElement).setPointerCapture(e.pointerId);
-          } catch(err) {}
-        }
+      // If waiting for long press, cancel if moved too much
+      if (!isDraggingRef.current && longPressTimeoutRef.current) {
+         if (dist > 8) { // Tolerance for "wobble"
+            clearTimeout(longPressTimeoutRef.current);
+            longPressTimeoutRef.current = null;
+         }
       }
 
       if (isDraggingRef.current && ghostDimensions) {
-        e.preventDefault(); // Prevent scrolling
+        e.preventDefault(); // Stop native behavior
+        
         setGhostPos({ 
           x: e.clientX - ghostDimensions.width / 2, 
           y: e.clientY - ghostDimensions.height / 2 
         });
+
+        // Trigger Auto Scroll
+        updateAutoScroll(e.clientY);
 
         // Hit test
         const elements = document.elementsFromPoint(e.clientX, e.clientY);
@@ -265,7 +329,6 @@ function App() {
                 newTasks.splice(hoverIndex, 0, moved);
                 return newTasks;
               });
-              // Update ref to new index so we don't swap repeatedly
               dragStartIndexRef.current = hoverIndex;
               setDraggingIndex(hoverIndex);
             }
@@ -283,22 +346,18 @@ function App() {
 
       if (wasDragging) {
         justDraggedRef.current = true;
-        // Keep the justDragged flag true for a short moment to block any subsequent click events
         setTimeout(() => { justDraggedRef.current = false; }, 50);
 
         setDraggingIndex(null);
         setGhostPos(null);
-        if (soundEnabled) playSound('click'); // Drop sound
+        if (soundEnabled) playSound('click');
         
-        // Release capture
         try {
             const el = document.querySelector(`[data-index="${dragStartIndexRef.current}"]`);
             if (el) {
                 (el as HTMLElement).releasePointerCapture(e.pointerId);
             }
-        } catch (err) {
-            // Ignore
-        }
+        } catch (err) {}
       }
 
       isDraggingRef.current = false;
@@ -306,6 +365,7 @@ function App() {
       dragStartIndexRef.current = null;
       pointerStartRef.current = null;
       pointerIdRef.current = null;
+      stopAutoScroll();
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
@@ -317,7 +377,7 @@ function App() {
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointercancel', handlePointerUp);
     };
-  }, [ghostDimensions, soundEnabled]); // Dependencies
+  }, [ghostDimensions, soundEnabled]);
 
   // --- Data Logic Helpers ---
   
@@ -721,7 +781,10 @@ function App() {
         </header>
 
         {/* Grid Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 touch-pan-y">
+        <main 
+          ref={mainRef}
+          className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 touch-pan-y"
+        >
           {tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-zinc-600 space-y-4">
               <div className="w-24 h-24 border-2 border-dashed border-zinc-800 rounded-2xl flex items-center justify-center">
