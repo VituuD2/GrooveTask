@@ -58,9 +58,13 @@ function App() {
     fetcher,
     { refreshInterval: 2000, fallbackData: [] }
   );
+  
+  // Groups List for name lookup
+  const { data: myGroups } = useSWR<Group[]>('/api/groups', fetcher);
 
   // Derived state for safe rendering
   const activeTasks = view === 'personal' ? personalTasks : (Array.isArray(groupTasks) ? groupTasks : []);
+  const activeGroupName = myGroups?.find(g => g.id === activeGroupId)?.name;
 
   const [theme, setTheme] = useState<ThemeColor>(THEME_COLORS[0]);
   const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -534,7 +538,7 @@ function App() {
              </button>
              <div className="flex flex-col">
                 <h2 className="text-xl font-bold flex items-center gap-2">
-                    {view === 'personal' ? 'My Board' : 'Crew Board'}
+                    {view === 'personal' ? 'My Board' : (activeGroupName || 'Crew Board')}
                 </h2>
                 {view === 'group' && activeGroupId && (
                    <div 
@@ -651,8 +655,13 @@ function App() {
           
           {/* Chat Panel (Right Side for Group View) */}
           {view === 'group' && activeGroupId && currentUser && (
-             <div className="hidden lg:block w-80 shrink-0 h-full border-l border-zinc-800 bg-zinc-900">
-                <ChatPanel groupId={activeGroupId} currentUser={currentUser} themeColor={theme.hex} />
+             <div className="hidden lg:block w-80 shrink-0 h-full border-l border-zinc-800 bg-zinc-900 relative">
+                <ChatPanel 
+                  groupId={activeGroupId} 
+                  groupName={activeGroupName}
+                  currentUser={currentUser} 
+                  themeColor={theme.hex} 
+                />
              </div>
           )}
         </div>

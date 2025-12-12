@@ -294,6 +294,7 @@ app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
   const tasks = await getTasks(userId);
   const history = await redis.get(`data:history:${userId}`) || [];
+  res.set('Cache-Control', 'no-store');
   return res.status(200).json({ isAuthenticated: true, user: { ...user, data: { tasks, history } } });
 });
 
@@ -362,12 +363,16 @@ app.get('/api/groups', requireAuth as any, async (req: any, res: any) => {
   const userId = req.user.uid;
   const groupIds = await redis.smembers(`user:${userId}:groups`);
   
-  if (groupIds.length === 0) return res.json([]);
+  if (groupIds.length === 0) {
+      res.set('Cache-Control', 'no-store');
+      return res.json([]);
+  }
 
   const pipeline = redis.pipeline();
   groupIds.forEach(gid => pipeline.hgetall(`group:${gid}:meta`));
   const groups = await pipeline.exec();
   
+  res.set('Cache-Control', 'no-store');
   return res.json(groups.filter(g => g !== null));
 });
 
@@ -376,12 +381,16 @@ app.get('/api/user/invites', requireAuth as any, async (req: any, res: any) => {
   const userId = req.user.uid;
   const groupIds = await redis.smembers(`user:${userId}:invites`);
   
-  if (groupIds.length === 0) return res.json([]);
+  if (groupIds.length === 0) {
+      res.set('Cache-Control', 'no-store');
+      return res.json([]);
+  }
 
   const pipeline = redis.pipeline();
   groupIds.forEach(gid => pipeline.hgetall(`group:${gid}:meta`));
   const groups = await pipeline.exec();
   
+  res.set('Cache-Control', 'no-store');
   return res.json(groups.filter(g => g !== null));
 });
 
@@ -551,6 +560,7 @@ app.get('/api/groups/:id/members', requireAuth as any, async (req: any, res: any
       joinedAt: 0 // Simplification, we don't store join date in set
     }));
 
+  res.set('Cache-Control', 'no-store');
   return res.json(members);
 });
 
@@ -565,6 +575,8 @@ app.get('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) 
   if (!isMember) return res.status(403).json({ error: 'Not a member' });
 
   const rawMap = await redis.hgetall<Record<string, string>>(`tasks:group:${groupId}`);
+  res.set('Cache-Control', 'no-store');
+  
   if (!rawMap) return res.json([]);
 
   const tasks = Object.values(rawMap).map(s => JSON.parse(s));
@@ -596,9 +608,10 @@ app.delete('/api/groups/:id/tasks/:taskId', requireAuth as any, async (req: any,
 
 app.get('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) => {
   const groupId = req.params.id;
-  // Get last 50 messages
-  const raw = await redis.lrange<string>(`chat:${groupId}:messages`, -50, -1);
+  // Get last 100 messages
+  const raw = await redis.lrange<string>(`chat:${groupId}:messages`, -100, -1);
   const messages = raw.map(s => JSON.parse(s));
+  res.set('Cache-Control', 'no-store');
   return res.json(messages);
 });
 
@@ -606,6 +619,10 @@ app.post('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) 
   const groupId = req.params.id;
   const { text } = req.body;
   
+  // Verify membership first
+  const isMember = await redis.sismember(`group:${groupId}:members`, req.user.uid);
+  if (!isMember) return res.status(403).json({ error: 'Not a member' });
+
   // Securely get user from session
   const user = await redis.get<UserProfile>(`user:${req.user.uid}`);
   const senderName = user ? user.username : 'Unknown';
@@ -618,8 +635,8 @@ app.post('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) 
   };
 
   await redis.rpush(`chat:${groupId}:messages`, JSON.stringify(msg));
-  // Trim to keep only last 200 messages to save space
-  await redis.ltrim(`chat:${groupId}:messages`, -200, -1);
+  // Trim to keep only last 500 messages to save space
+  await redis.ltrim(`chat:${groupId}:messages`, -500, -1);
   
   return res.json(msg);
 });
