@@ -45,9 +45,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   onOpenInvites,
   onOpenWhatsNew
 }) => {
-  const { data: groups } = useSWR<Group[]>('/api/groups', fetcher, { fallbackData: [] });
+  const { data: groups } = useSWR<Group[]>(currentUser ? '/api/groups' : null, fetcher, { fallbackData: [] });
   // Poll invites for notification badge
-  const { data: invites } = useSWR<Group[]>('/api/user/invites', fetcher, { refreshInterval: 5000 });
+  const { data: invites } = useSWR<Group[]>(currentUser ? '/api/user/invites' : null, fetcher, { refreshInterval: 5000 });
   const { t } = useLanguage();
 
   return (

@@ -583,7 +583,7 @@ app.get('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) 
   
   if (!rawMap) return res.json([]);
 
-  let tasks = Object.values(rawMap).map(s => JSON.parse(s));
+  let tasks = Object.values(rawMap).map(s => JSON.parse(s as string));
   
   // Sort by order
   let order: string[] = [];

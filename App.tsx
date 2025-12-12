@@ -70,8 +70,13 @@ function App() {
     { refreshInterval: 2000, fallbackData: [] }
   );
   
-  // Groups List for name lookup
-  const { data: myGroups } = useSWR<Group[]>('/api/groups', fetcher);
+  // --- Auth State ---
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const isLoggedIn = !!currentUser;
+
+  // Groups List for name lookup (Only fetch if logged in)
+  const { data: myGroups } = useSWR<Group[]>(isLoggedIn ? '/api/groups' : null, fetcher);
 
   // Derived state for safe rendering
   const activeTasks = view === 'personal' ? personalTasks : (Array.isArray(groupTasks) ? groupTasks : []);
@@ -82,11 +87,6 @@ function App() {
     const saved = localStorage.getItem('groovetask_sound');
     return saved !== null ? JSON.parse(saved) : true;
   });
-
-  // --- Auth State ---
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const isLoggedIn = !!currentUser;
 
   // --- UI State ---
   const [showStats, setShowStats] = useState(false);

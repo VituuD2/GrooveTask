@@ -12,7 +12,7 @@ interface InvitesModalProps {
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const InvitesModal: React.FC<InvitesModalProps> = ({ isOpen, onClose, themeColor }) => {
-  const { data: invites, mutate: mutateInvites } = useSWR<Group[]>('/api/user/invites', fetcher);
+  const { data: invites, mutate: mutateInvites } = useSWR<Group[]>(isOpen ? '/api/user/invites' : null, fetcher);
 
   const handleAction = async (groupId: string, action: 'accept' | 'decline') => {
       try {
