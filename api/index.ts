@@ -400,7 +400,7 @@ app.get('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) 
 // Update/Create Task (HSET)
 app.post('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) => {
   const groupId = req.params.id;
-  const task = req.body; // Full task object
+  const task = req.body as Task; // Full task object
   
   // Tag the updater
   const user = await redis.get<UserProfile>(`user:${req.user.uid}`);

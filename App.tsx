@@ -155,10 +155,17 @@ function App() {
     }
   }, [personalTasks, history, view, isLoggedIn]);
   
-  // Persist Theme/Sound
+  // Persist Theme/Sound and Update Favicon
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme.id);
     localStorage.setItem('groovetask_sound', JSON.stringify(soundEnabled));
+    
+    // Update Favicon color
+    const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+    if (link) {
+         const color = theme.hex.replace('#', '%23');
+         link.href = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%2318181b' rx='20'/%3E%3Crect x='25' y='25' width='50' height='50' fill='${color}' rx='10'/%3E%3Ccircle cx='75' cy='25' r='5' fill='%2352525b'/%3E%3C/svg%3E`;
+    }
   }, [theme, soundEnabled]);
 
   // Username Check Effect
