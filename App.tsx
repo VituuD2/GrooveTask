@@ -684,6 +684,12 @@ function App() {
             onClose={() => setShowGroupInfo(false)}
             groupId={activeGroupId}
             themeColor={theme.hex}
+            currentUser={currentUser}
+            onGroupAction={() => { 
+                setShowGroupInfo(false);
+                handleNavigate('personal');
+                mutate('/api/groups'); 
+            }}
          />
       )}
 

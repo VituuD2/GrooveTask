@@ -346,7 +346,7 @@ app.post('/api/groups', requireAuth as any, async (req: any, res: any) => {
 
     // Atomic Multi transaction
     const pipeline = redis.pipeline();
-    pipeline.hset(`group:${groupId}:meta`, group as any);
+    pipeline.hset(`group:${groupId}:meta`, group as unknown as Record<string, unknown>);
     pipeline.sadd(`group:${groupId}:members`, userId);
     pipeline.sadd(`user:${userId}:groups`, groupId);
     await pipeline.exec();
@@ -443,6 +443,87 @@ app.post('/api/groups/:id/decline', requireAuth as any, async (req: any, res: an
   return res.json({ success: true });
 });
 
+// Kick Member
+app.post('/api/groups/:id/kick', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const { userId: targetId } = req.body;
+  const requesterId = req.user.uid;
+
+  const groupMeta = (await redis.hgetall(`group:${groupId}:meta`)) as unknown as Group | null;
+  if (!groupMeta) return res.status(404).json({ error: 'Group not found' });
+
+  if (groupMeta.ownerId !== requesterId) {
+    return res.status(403).json({ error: 'Only owner can kick members' });
+  }
+
+  if (targetId === requesterId) {
+     return res.status(400).json({ error: 'Cannot kick yourself' });
+  }
+
+  const pipeline = redis.pipeline();
+  pipeline.srem(`group:${groupId}:members`, targetId);
+  pipeline.srem(`user:${targetId}:groups`, groupId);
+  await pipeline.exec();
+
+  return res.json({ success: true });
+});
+
+// Leave Group
+app.post('/api/groups/:id/leave', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const requesterId = req.user.uid;
+
+  const groupMeta = (await redis.hgetall(`group:${groupId}:meta`)) as unknown as Group | null;
+  if (!groupMeta) return res.status(404).json({ error: 'Group not found' });
+
+  if (groupMeta.ownerId === requesterId) {
+    return res.status(400).json({ error: 'Owner cannot leave. Delete group instead.' });
+  }
+
+  const pipeline = redis.pipeline();
+  pipeline.srem(`group:${groupId}:members`, requesterId);
+  pipeline.srem(`user:${requesterId}:groups`, groupId);
+  await pipeline.exec();
+
+  return res.json({ success: true });
+});
+
+// Delete Group
+app.delete('/api/groups/:id', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const requesterId = req.user.uid;
+
+  const groupMeta = (await redis.hgetall(`group:${groupId}:meta`)) as unknown as Group | null;
+  if (!groupMeta) return res.status(404).json({ error: 'Group not found' });
+
+  if (groupMeta.ownerId !== requesterId) {
+    return res.status(403).json({ error: 'Only owner can delete group' });
+  }
+
+  // Get all members to cleanup their references
+  const members = await redis.smembers(`group:${groupId}:members`);
+  const invites = await redis.smembers(`group:${groupId}:invites`);
+  
+  const pipeline = redis.pipeline();
+  
+  // Remove group from all members' lists
+  members.forEach(mid => pipeline.srem(`user:${mid}:groups`, groupId));
+  // Remove group from all invitees' lists
+  invites.forEach(mid => pipeline.srem(`user:${mid}:invites`, groupId));
+
+  // Delete Group Data
+  pipeline.del(`group:${groupId}:meta`);
+  pipeline.del(`group:${groupId}:members`);
+  pipeline.del(`group:${groupId}:invites`);
+  pipeline.del(`tasks:group:${groupId}`);
+  pipeline.del(`chat:${groupId}:messages`);
+
+  await pipeline.exec();
+
+  return res.json({ success: true });
+});
+
+
 // Get Group Members
 app.get('/api/groups/:id/members', requireAuth as any, async (req: any, res: any) => {
   const groupId = req.params.id;
@@ -453,7 +534,7 @@ app.get('/api/groups/:id/members', requireAuth as any, async (req: any, res: any
   if (!isMember) return res.status(403).json({ error: 'Not a member' });
 
   const memberIds = await redis.smembers(`group:${groupId}:members`);
-  const groupMeta = await redis.hgetall<Group>(`group:${groupId}:meta`);
+  const groupMeta = (await redis.hgetall(`group:${groupId}:meta`)) as unknown as Group | null;
   
   // Fetch user details for each member
   const pipeline = redis.pipeline();
