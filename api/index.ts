@@ -583,7 +583,14 @@ app.get('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) 
   
   if (!rawMap) return res.json([]);
 
-  let tasks = Object.values(rawMap).map(s => JSON.parse(s as string));
+  // Robust parsing: Upstash might return object (if auto-deserialized) OR string
+  let tasks = Object.values(rawMap).map((s: any) => {
+      try {
+          return typeof s === 'string' ? JSON.parse(s) : s;
+      } catch (e) {
+          return null;
+      }
+  }).filter(t => t !== null);
   
   // Sort by order
   let order: string[] = [];

@@ -182,10 +182,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Version",
     gotIt: "Got it!",
     releaseNotes: [
+      "Fix: Improved Group Tasks synchronization reliability.",
       "New Counter Tracks! Keep track of repetitions instead of just checking off.",
       "History Log: View and manage timestamped entries for counter tracks.",
       "Updated Settings: Check username availability in real-time.",
-      "Improved performance and sync reliability."
     ]
   },
   'pt-BR': {
@@ -263,10 +263,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Versão",
     gotIt: "Entendi!",
     releaseNotes: [
+      "Correção: Sincronização de Tarefas em Grupo aprimorada.",
       "Novas Faixas de Contador! Acompanhe repetições em vez de apenas marcar.",
       "Histórico de Registros: Visualize e gerencie entradas com data e hora.",
       "Configurações Atualizadas: Verifique a disponibilidade do nome de usuário em tempo real.",
-      "Melhorias de desempenho e confiabilidade na sincronização."
     ]
   },
   es: {
@@ -344,10 +344,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Versión",
     gotIt: "¡Entendido!",
     releaseNotes: [
+      "Corrección: Fiabilidad de sincronización de tareas grupales mejorada.",
       "¡Nuevas Pistas de Contador! Realiza un seguimiento de las repeticiones.",
       "Registro de Historial: Ver y gestionar entradas con fecha y hora.",
       "Configuración Actualizada: Verificación de disponibilidad de nombre de usuario en tiempo real.",
-      "Mejoras de rendimiento y fiabilidad de sincronización."
     ]
   },
   fr: {
@@ -425,10 +425,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Version",
     gotIt: "Compris !",
     releaseNotes: [
+      "Correctif : Amélioration de la synchronisation des tâches de groupe.",
       "Nouvelles Pistes Compteur ! Suivez les répétitions au lieu de simplement cocher.",
       "Journal d'Historique : Visualisez et gérez les entrées horodatées.",
       "Paramètres mis à jour : Vérification de la disponibilité du nom d'utilisateur en temps réel.",
-      "Amélioration des performances et de la fiabilité de la synchronisation."
     ]
   },
   de: {
@@ -506,10 +506,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Version",
     gotIt: "Verstanden!",
     releaseNotes: [
+      "Fix: Verbesserte Zuverlässigkeit der Synchronisation von Gruppenaufgaben.",
       "Neue Zähler-Tracks! Verfolge Wiederholungen statt nur abzuhaken.",
       "Verlaufsprotokoll: Zeitgestempelte Einträge anzeigen und verwalten.",
       "Aktualisierte Einstellungen: Echtzeit-Überprüfung der Benutzernamen-Verfügbarkeit.",
-      "Verbesserte Leistung und Synchronisierung."
     ]
   }
 };
