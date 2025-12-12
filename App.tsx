@@ -425,6 +425,34 @@ function App() {
      }
      setDeleteTaskId(null);
   };
+  
+  // NEW: Delete specific log entry
+  const handleDeleteLogEntry = async (entryId: string) => {
+     if (!currentTask || !currentTask.log) return;
+     
+     const updatedLog = currentTask.log.filter(l => l.id !== entryId);
+     const updatedTask = { ...currentTask, log: updatedLog, count: Math.max(0, (currentTask.count || 0) - 1) };
+     
+     setCurrentTask(updatedTask); // Update modal view immediately
+
+     if (view === 'personal') {
+        const newTasks = personalTasks.map(t => t.id === currentTask.id ? updatedTask : t);
+        setPersonalTasks(newTasks);
+        if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
+     } else {
+        mutateGroupTasks(activeTasks.map(t => t.id === currentTask.id ? updatedTask : t), false);
+        try {
+            await fetch(`/api/groups/${activeGroupId}/tasks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedTask)
+            });
+            mutateGroupTasks();
+        } catch (e) {
+            addToast("Failed to delete entry", "error");
+        }
+     }
+  };
 
   // --- Modal Openers ---
   const openCreateModal = () => {
@@ -790,8 +818,15 @@ function App() {
                                </div>
                                <div className="max-h-[150px] overflow-y-auto p-2">
                                    {currentTask.log?.map((l: any) => (
-                                       <div key={l.id} className="text-xs text-zinc-400 py-1 px-2 border-b border-zinc-800/50 last:border-0 flex justify-between">
+                                       <div key={l.id} className="text-xs text-zinc-400 py-1 px-2 border-b border-zinc-800/50 last:border-0 flex justify-between items-center group">
                                            <span>{new Date(l.timestamp).toLocaleString()}</span>
+                                           <button 
+                                              onClick={() => handleDeleteLogEntry(l.id)}
+                                              className="p-1 text-zinc-600 hover:text-red-500 hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 transition-all"
+                                              title="Delete entry"
+                                           >
+                                              <Trash2 size={12} />
+                                           </button>
                                        </div>
                                    ))}
                                    {(!currentTask.log || currentTask.log.length === 0) && <div className="text-center text-zinc-600 text-xs py-2">{t.noHistory}</div>}

@@ -7,44 +7,45 @@ export const playSound = (type: 'check' | 'complete' | 'click' | 'notification',
   const now = ctx.currentTime;
 
   if (type === 'notification') {
-    // "GrooveTask Signature": A soft, modern synth chime (Major 3rd ascending)
-    // Oscillator 1: The body
+    // UPDATED: "GrooveTask Smooth Chime" - Less sharp, warmer tone.
+    // Lowered pitch range (C4 -> E4 instead of C5 -> E5)
+    // Slower attack to remove "click" or sharpness.
+    
+    // Oscillator 1: The warm body (Sine)
     const osc1 = ctx.createOscillator();
     const gain1 = ctx.createGain();
     osc1.connect(gain1);
     gain1.connect(ctx.destination);
 
-    // Oscillator 2: The sparkle (Harmonic)
+    // Oscillator 2: Subtle harmonic (Sine, not triangle to avoid buzz)
     const osc2 = ctx.createOscillator();
     const gain2 = ctx.createGain();
     osc2.connect(gain2);
     gain2.connect(ctx.destination);
 
-    // Note 1: C5 (523.25 Hz)
+    // Note 1: C4 (Middle C - 261.63 Hz)
     osc1.type = 'sine';
-    osc1.frequency.setValueAtTime(523.25, now);
-    osc1.frequency.exponentialRampToValueAtTime(523.25, now + 0.1);
-    // Slide to E5 (659.25 Hz) for a happy "ding"
-    osc1.frequency.exponentialRampToValueAtTime(659.25, now + 0.15);
+    osc1.frequency.setValueAtTime(261.63, now);
+    osc1.frequency.linearRampToValueAtTime(329.63, now + 0.15); // Slide to E4 slowly
 
-    // Envelope for main tone
+    // Envelope for main tone - Slower attack (0.1s)
     gain1.gain.setValueAtTime(0, now);
-    gain1.gain.linearRampToValueAtTime(0.15, now + 0.05); // Soft attack
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 1.5); // Long smooth tail
+    gain1.gain.linearRampToValueAtTime(0.2, now + 0.1); 
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 1.2); 
 
-    // Note 2: Overtone for texture
-    osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(523.25 * 2, now); // Octave up
+    // Note 2: Harmonic (Octave + 5th) for "shine" but soft
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(392.00, now); // G4
     
-    // Envelope for overtone (shorter)
+    // Envelope for harmonic - very subtle
     gain2.gain.setValueAtTime(0, now);
-    gain2.gain.linearRampToValueAtTime(0.05, now + 0.05);
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    gain2.gain.linearRampToValueAtTime(0.05, now + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
 
     osc1.start(now);
-    osc1.stop(now + 1.5);
+    osc1.stop(now + 1.2);
     osc2.start(now);
-    osc2.stop(now + 1.5);
+    osc2.stop(now + 1.2);
 
     return;
   }

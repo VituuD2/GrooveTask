@@ -177,8 +177,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, 
                     {msg.text}
                   </div>
                   
-                  {/* Timestamp */}
-                  <span className={`text-[9px] text-zinc-600 mt-1 px-1 opacity-0 group-hover:opacity-100 transition-opacity`}>
+                  {/* Timestamp - Always Visible now */}
+                  <span className={`text-[9px] text-zinc-600 mt-1 px-1 font-medium`}>
                     {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                   </span>
                 </div>
