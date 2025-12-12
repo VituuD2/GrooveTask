@@ -13,4 +13,4 @@ export const THEME_COLORS: ThemeColor[] = [
 
 export const STORAGE_KEY = 'groovetask_data';
 export const THEME_KEY = 'groovetask_theme';
-export const APP_VERSION = 'v0.2.2-beta';
+export const APP_VERSION = 'v0.2.3-beta';

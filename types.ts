@@ -49,6 +49,12 @@ export interface UserSettings {
   language?: string;
 }
 
+export interface Workspace {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
 export interface UserProfile {
   id: string;
   email: string;

@@ -29,6 +29,12 @@ interface Task {
   updatedBy?: string;
 }
 
+interface Workspace {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
 interface UserProfile {
   id: string;
   email: string;
@@ -112,9 +118,12 @@ async function generateAndClaimUniqueUsername(email: string, userId: string): Pr
   throw new Error("Could not generate unique username");
 }
 
-async function getTasks(uid: string): Promise<Task[]> {
-  const key = `data:tasks:${uid}`;
-  const orderKey = `data:tasks:order:${uid}`;
+// Workspaces Support
+async function getTasks(uid: string, workspaceId: string = 'default'): Promise<Task[]> {
+  // If workspace is default, use the root keys (backward compatibility)
+  // If workspace is specific, use suffix keys
+  const key = workspaceId === 'default' ? `data:tasks:${uid}` : `data:tasks:${uid}:${workspaceId}`;
+  const orderKey = workspaceId === 'default' ? `data:tasks:order:${uid}` : `data:tasks:order:${uid}:${workspaceId}`;
   
   const [type, rawMap, order] = await Promise.all([
     redis.type(key),
@@ -146,8 +155,9 @@ async function getTasks(uid: string): Promise<Task[]> {
   return [];
 }
 
-async function saveTasks(uid: string, tasks: any[], forceEmpty: boolean = false) {
-  const key = `data:tasks:${uid}`;
+async function saveTasks(uid: string, tasks: any[], forceEmpty: boolean = false, workspaceId: string = 'default') {
+  const key = workspaceId === 'default' ? `data:tasks:${uid}` : `data:tasks:${uid}:${workspaceId}`;
+  
   const cleanTasks = tasks.map(t => ({
      id: t.id,
      type: t.type || 'simple',
@@ -226,9 +236,16 @@ app.post('/api/auth/register', authLimiter as any, async (req: any, res: any) =>
       createdAt: Date.now(),
       settings: { themeId: 'neon-blue', soundEnabled: true, language: language || 'en' }
     };
+    
+    // Initialize default workspace
+    const defaultWorkspaces: Workspace[] = [{ id: 'default', name: 'My Board', createdAt: Date.now() }];
 
-    await redis.set(`user:${userId}`, newUser);
-    await redis.set(`email:${cleanEmail}`, userId);
+    const pipeline = redis.pipeline();
+    pipeline.set(`user:${userId}`, newUser);
+    pipeline.set(`email:${cleanEmail}`, userId);
+    // Store workspaces as a simple JSON string key for now
+    pipeline.set(`user:${userId}:workspaces`, JSON.stringify(defaultWorkspaces));
+    await pipeline.exec();
 
     const token = jwt.sign({ uid: userId, email: cleanEmail }, JWT_SECRET, { expiresIn: '30d' });
     setAuthCookie(res, token);
@@ -250,7 +267,7 @@ app.post('/api/auth/login', authLimiter as any, async (req: any, res: any) => {
     if (!userId) {
        // Legacy check
        const oldUser = await redis.get<any>(`user:${cleanId}`);
-       if (oldUser) userId = oldUser.id; // Assume migrated or partial state
+       if (oldUser) userId = oldUser.id; 
        else return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -279,10 +296,7 @@ app.post('/api/auth/check-username', requireAuth as any, async (req: any, res: a
     return res.status(400).json({ error: 'Invalid length' });
   }
   
-  // Check if taken by SOMEONE ELSE
   const existingId = await redis.get<string>(`username:${username.toLowerCase()}`);
-  
-  // Available if null OR if it belongs to me
   const isAvailable = !existingId || existingId === req.user.uid;
   
   return res.json({ available: isAvailable });
@@ -292,20 +306,102 @@ app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   const userId = req.user.uid;
   const user = await redis.get<UserProfile>(`user:${userId}`);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  const tasks = await getTasks(userId);
+  
+  // Fetch workspaces
+  const workspacesRaw = await redis.get<string | Workspace[]>(`user:${userId}:workspaces`);
+  let workspaces: Workspace[] = [];
+  if (workspacesRaw) {
+     workspaces = typeof workspacesRaw === 'string' ? JSON.parse(workspacesRaw) : workspacesRaw;
+  } else {
+     // Migration for old users: Create default if not exists
+     workspaces = [{ id: 'default', name: 'My Board', createdAt: Date.now() }];
+     await redis.set(`user:${userId}:workspaces`, JSON.stringify(workspaces));
+  }
+
+  // NOTE: For 'me', we still just return default tasks to ensure initial load works, 
+  // but frontend should ideally fetch tasks based on selected workspace.
+  // We will return tasks: [] in user object and let frontend fetch specific workspace tasks via API.
+  const tasks = await getTasks(userId, 'default'); 
   const history = await redis.get(`data:history:${userId}`) || [];
+  
   res.set('Cache-Control', 'no-store');
-  return res.status(200).json({ isAuthenticated: true, user: { ...user, data: { tasks, history } } });
+  // Include workspaces in response
+  return res.status(200).json({ 
+      isAuthenticated: true, 
+      user: { ...user, data: { tasks, history }, workspaces } 
+  });
+});
+
+// --- WORKSPACES API ---
+
+app.get('/api/workspaces', requireAuth as any, async (req: any, res: any) => {
+    const userId = req.user.uid;
+    const raw = await redis.get<string | Workspace[]>(`user:${userId}:workspaces`);
+    const list = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [{id: 'default', name: 'My Board'}];
+    res.json(list);
+});
+
+app.post('/api/workspaces', requireAuth as any, async (req: any, res: any) => {
+    const userId = req.user.uid;
+    const { name } = req.body;
+    if(!name) return res.status(400).json({error: 'Name required'});
+
+    const raw = await redis.get<string | Workspace[]>(`user:${userId}:workspaces`);
+    let list: Workspace[] = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [{id: 'default', name: 'My Board', createdAt: Date.now()}];
+
+    if (list.length >= 5) return res.status(403).json({ error: 'Limit reached (5)' });
+
+    const newWorkspace = { id: uuidv4(), name, createdAt: Date.now() };
+    list.push(newWorkspace);
+    
+    await redis.set(`user:${userId}:workspaces`, JSON.stringify(list));
+    return res.status(201).json(newWorkspace);
+});
+
+app.delete('/api/workspaces/:id', requireAuth as any, async (req: any, res: any) => {
+    const userId = req.user.uid;
+    const wid = req.params.id;
+    if(wid === 'default') return res.status(400).json({error: 'Cannot delete default workspace'});
+
+    const raw = await redis.get<string | Workspace[]>(`user:${userId}:workspaces`);
+    let list: Workspace[] = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+
+    const newList = list.filter(w => w.id !== wid);
+    if(newList.length === list.length) return res.status(404).json({error: 'Not found'});
+
+    const pipeline = redis.pipeline();
+    pipeline.set(`user:${userId}:workspaces`, JSON.stringify(newList));
+    // Clean up data
+    pipeline.del(`data:tasks:${userId}:${wid}`);
+    pipeline.del(`data:tasks:order:${userId}:${wid}`);
+    await pipeline.exec();
+
+    return res.json({success: true});
+});
+
+app.get('/api/workspaces/:id/tasks', requireAuth as any, async (req: any, res: any) => {
+    const userId = req.user.uid;
+    const wid = req.params.id;
+    const tasks = await getTasks(userId, wid);
+    return res.json(tasks);
 });
 
 // --- PERSONAL DATA SYNC ---
 app.post('/api/user/data', requireAuth as any, async (req: any, res: any) => {
   const userId = req.user.uid;
-  const { tasks, history, order, forceEmpty } = req.body;
+  const { tasks, history, order, forceEmpty, workspaceId } = req.body;
+  const wid = workspaceId || 'default';
 
-  if (tasks && Array.isArray(tasks)) await saveTasks(userId, tasks, !!forceEmpty);
+  if (tasks && Array.isArray(tasks)) await saveTasks(userId, tasks, !!forceEmpty, wid);
+  
+  // History is shared globally for user currently, or strictly per workspace?
+  // Let's keep history Global for now to simplify stats.
   if (history && Array.isArray(history)) await redis.set(`data:history:${userId}`, history);
-  if (order && Array.isArray(order)) await redis.set(`data:tasks:order:${userId}`, order);
+  
+  if (order && Array.isArray(order)) {
+      const orderKey = wid === 'default' ? `data:tasks:order:${userId}` : `data:tasks:order:${userId}:${wid}`;
+      await redis.set(orderKey, order);
+  }
 
   return res.status(200).json({ success: true });
 });

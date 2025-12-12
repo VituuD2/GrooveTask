@@ -6,7 +6,7 @@ import ReactSortablePkg from 'react-sortablejs';
 // Handle ESM/CommonJS import differences for Sortable
 const ReactSortable = (ReactSortablePkg as any).ReactSortable || ReactSortablePkg;
 
-import { Task, AppState, DailyStat, ThemeColor, TaskType, UserProfile, Group } from './types';
+import { Task, AppState, DailyStat, ThemeColor, TaskType, UserProfile, Group, Workspace } from './types';
 import { THEME_COLORS, STORAGE_KEY, THEME_KEY, APP_VERSION } from './constants';
 import { playSound } from './services/audio';
 import { useLanguage } from './contexts/LanguageContext';
@@ -45,11 +45,26 @@ function App() {
   // --- View State ---
   const [view, setView] = useState<'personal' | 'group'>('personal');
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>('default');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // --- Auth State ---
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([{id: 'default', name: 'My Board', createdAt: Date.now()}]);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const isLoggedIn = !!currentUser;
+
   // --- Core State ---
-  // Personal Tasks (Local + Sync) - Lazy Initialization to prevent wipe on refresh
-  const [personalTasks, setPersonalTasks] = useState<Task[]>(() => {
+  // Personal Tasks - Using SWR if logged in, Local State if not
+  // If logged in, we fetch tasks based on workspace ID
+  const { data: remotePersonalTasks, mutate: mutatePersonalTasks } = useSWR<Task[]>(
+      isLoggedIn && view === 'personal' ? `/api/workspaces/${activeWorkspaceId}/tasks` : null,
+      fetcher,
+      { refreshInterval: 5000, fallbackData: [] }
+  );
+
+  // Local State (Syncs with remote if logged in, primary source if not)
+  const [localPersonalTasks, setLocalPersonalTasks] = useState<Task[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       return saved ? (JSON.parse(saved).tasks || []) : [];
@@ -70,11 +85,6 @@ function App() {
     { refreshInterval: 2000, fallbackData: [] }
   );
   
-  // --- Auth State ---
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const isLoggedIn = !!currentUser;
-
   // Groups List for name lookup (Only fetch if logged in)
   const { data: myGroups } = useSWR<Group[]>(isLoggedIn ? '/api/groups' : null, fetcher);
 
@@ -85,8 +95,12 @@ function App() {
   const prevInvitesCountRef = useRef(0);
 
   // Derived state for safe rendering
-  const activeTasks = view === 'personal' ? personalTasks : (Array.isArray(groupTasks) ? groupTasks : []);
+  const activeTasks = view === 'personal' 
+     ? (isLoggedIn ? (remotePersonalTasks || []) : localPersonalTasks)
+     : (Array.isArray(groupTasks) ? groupTasks : []);
+     
   const activeGroupName = myGroups?.find(g => g.id === activeGroupId)?.name;
+  const activeWorkspaceName = workspaces.find(w => w.id === activeWorkspaceId)?.name;
 
   const [theme, setTheme] = useState<ThemeColor>(THEME_COLORS[0]);
   const [soundEnabled, setSoundEnabled] = useState(() => {
@@ -123,22 +137,26 @@ function App() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // --- Effects ---
-  useEffect(() => {
-    // Check Auth
+  const refreshUser = () => {
     fetch('/api/auth/me').then(res => {
       if(res.ok) return res.json();
       throw new Error();
     }).then(data => {
       if(data.isAuthenticated) {
         setCurrentUser(data.user);
+        // Note: data.user.workspaces comes from backend now
+        if(data.user.workspaces) setWorkspaces(data.user.workspaces);
         if(data.user.settings) applySettings(data.user.settings);
         if(data.user.data) {
-           // Merge or overwrite strategy could be complex, simple overwrite for now
-           if (data.user.data.tasks) setPersonalTasks(data.user.data.tasks);
            if (data.user.data.history) setHistory(data.user.data.history);
+           // NOTE: We don't overwrite tasks here because we fetch per workspace now
         }
       }
     }).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshUser();
     
     // Check Version
     if (localStorage.getItem('groovetask_version') !== APP_VERSION) {
@@ -153,21 +171,12 @@ function App() {
     }
   }, [isLoggedIn]);
 
-  // Persist Personal Data
+  // Persist Personal Data (Offline Mode / Default Workspace Sync)
   useEffect(() => {
-    if (view === 'personal') {
-       localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: personalTasks, history }));
-       // Sync order if logged in
-       if (isLoggedIn) {
-           const order = personalTasks.map(t => t.id);
-           fetch('/api/user/data', { 
-               method: 'POST', 
-               headers: {'Content-Type':'application/json'}, 
-               body: JSON.stringify({ order })
-           });
-       }
+    if (view === 'personal' && !isLoggedIn) {
+       localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks: localPersonalTasks, history }));
     }
-  }, [personalTasks, history, view, isLoggedIn]);
+  }, [localPersonalTasks, history, view, isLoggedIn]);
   
   // Persist Theme/Sound and Update Favicon
   useEffect(() => {
@@ -264,9 +273,14 @@ function App() {
   };
 
   // --- Handlers ---
-  const handleNavigate = (newView: 'personal' | 'group', groupId?: string) => {
+  const handleNavigate = (newView: 'personal' | 'group', id?: string) => {
     setView(newView);
-    if (groupId) setActiveGroupId(groupId);
+    if (newView === 'group') {
+        if(id) setActiveGroupId(id);
+    } else {
+        // Switching to personal workspace
+        setActiveWorkspaceId(id || 'default');
+    }
     setSidebarOpen(false);
   };
   
@@ -275,13 +289,23 @@ function App() {
       setCurrentUser(null); 
       setView('personal');
       setActiveGroupId(null);
+      setActiveWorkspaceId('default');
   };
 
   // --- Task Logic ---
 
   const handleSetList = (newList: Task[]) => {
     if (view === 'personal') {
-      setPersonalTasks(newList);
+       if (isLoggedIn) {
+          mutatePersonalTasks(newList, false);
+          fetch('/api/user/data', { 
+               method: 'POST', 
+               headers: {'Content-Type':'application/json'}, 
+               body: JSON.stringify({ order: newList.map(t => t.id), workspaceId: activeWorkspaceId })
+          });
+       } else {
+          setLocalPersonalTasks(newList);
+       }
     } else {
       // Optimistic update
       mutateGroupTasks(newList, false);
@@ -303,26 +327,32 @@ function App() {
     if (!task) return;
 
     if (view === 'personal') {
-       // Counter Logic
+       // Logic for Personal Tasks (Local or Workspace)
+       let updatedTask = { ...task };
        if (task.type === 'counter') {
-           const newTasks = personalTasks.map(t => {
-               if(t.id === id) {
-                   const count = (t.count || 0) + 1;
-                   const log = [{ id: uuidv4(), timestamp: Date.now() }, ...(t.log || [])];
-                   return { ...t, count, log, completedAt: Date.now() };
-               }
-               return t;
-           });
-           setPersonalTasks(newTasks);
+           updatedTask.count = (updatedTask.count || 0) + 1;
+           updatedTask.log = [{ id: uuidv4(), timestamp: Date.now() }, ...(updatedTask.log || [])];
+           updatedTask.completedAt = Date.now();
            if(soundEnabled) playSound('check', 600);
-           if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
        } else {
-           // Simple Logic
-           const newTasks = personalTasks.map(t => t.id === id ? { ...t, isCompleted: !t.isCompleted, completedAt: !t.isCompleted ? Date.now() : null } : t);
-           setPersonalTasks(newTasks);
-           if (!task.isCompleted && soundEnabled) playSound('check');
-           if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
+           updatedTask.isCompleted = !task.isCompleted;
+           updatedTask.completedAt = !task.isCompleted ? Date.now() : null;
+           if(!task.isCompleted && soundEnabled) playSound('check');
        }
+
+       if (isLoggedIn) {
+           const newTasks = (remotePersonalTasks || []).map(t => t.id === id ? updatedTask : t);
+           mutatePersonalTasks(newTasks, false);
+           fetch('/api/user/data', { 
+               method: 'POST', 
+               headers: {'Content-Type':'application/json'}, 
+               body: JSON.stringify({ tasks: newTasks, workspaceId: activeWorkspaceId })
+           });
+       } else {
+           const newTasks = localPersonalTasks.map(t => t.id === id ? updatedTask : t);
+           setLocalPersonalTasks(newTasks);
+       }
+
     } else {
        // Group Logic (Optimistic SWR)
        let updatedTask = { ...task };
@@ -369,9 +399,18 @@ function App() {
     };
 
     if (view === 'personal') {
-       const newTasks = [...personalTasks, newTask];
-       setPersonalTasks(newTasks);
-       if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks, order: newTasks.map(t => t.id) })});
+       if (isLoggedIn) {
+          const newTasks = [...(remotePersonalTasks || []), newTask];
+          mutatePersonalTasks(newTasks, false);
+          fetch('/api/user/data', { 
+              method: 'POST', 
+              headers: {'Content-Type':'application/json'}, 
+              body: JSON.stringify({ tasks: newTasks, order: newTasks.map(t => t.id), workspaceId: activeWorkspaceId })
+          });
+       } else {
+          const newTasks = [...localPersonalTasks, newTask];
+          setLocalPersonalTasks(newTasks);
+       }
     } else {
        if (!activeGroupId) return;
        mutateGroupTasks([...(groupTasks || []), newTask], false);
@@ -394,9 +433,18 @@ function App() {
     const updatedTask = { ...currentTask, title: formTitle, description: formDesc };
 
     if (view === 'personal') {
-       const newTasks = personalTasks.map(t => t.id === currentTask.id ? updatedTask : t);
-       setPersonalTasks(newTasks);
-       if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
+       if (isLoggedIn) {
+          const newTasks = (remotePersonalTasks || []).map(t => t.id === currentTask.id ? updatedTask : t);
+          mutatePersonalTasks(newTasks, false);
+          fetch('/api/user/data', { 
+              method: 'POST', 
+              headers: {'Content-Type':'application/json'}, 
+              body: JSON.stringify({ tasks: newTasks, workspaceId: activeWorkspaceId })
+          });
+       } else {
+          const newTasks = localPersonalTasks.map(t => t.id === currentTask.id ? updatedTask : t);
+          setLocalPersonalTasks(newTasks);
+       }
     } else {
        mutateGroupTasks(activeTasks.map(t => t.id === currentTask.id ? updatedTask : t), false);
        await fetch(`/api/groups/${activeGroupId}/tasks`, {
@@ -414,9 +462,18 @@ function App() {
      if (!deleteTaskId) return;
      
      if (view === 'personal') {
-        const newTasks = personalTasks.filter(t => t.id !== deleteTaskId);
-        setPersonalTasks(newTasks);
-        if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks, order: newTasks.map(t => t.id) })});
+        if (isLoggedIn) {
+            const newTasks = (remotePersonalTasks || []).filter(t => t.id !== deleteTaskId);
+            mutatePersonalTasks(newTasks, false);
+            fetch('/api/user/data', { 
+                method: 'POST', 
+                headers: {'Content-Type':'application/json'}, 
+                body: JSON.stringify({ tasks: newTasks, order: newTasks.map(t => t.id), workspaceId: activeWorkspaceId })
+            });
+        } else {
+            const newTasks = localPersonalTasks.filter(t => t.id !== deleteTaskId);
+            setLocalPersonalTasks(newTasks);
+        }
      } else {
         const newTasks = (groupTasks || []).filter(t => t.id !== deleteTaskId);
         mutateGroupTasks(newTasks, false);
@@ -426,7 +483,6 @@ function App() {
      setDeleteTaskId(null);
   };
   
-  // NEW: Delete specific log entry
   const handleDeleteLogEntry = async (entryId: string) => {
      if (!currentTask || !currentTask.log) return;
      
@@ -436,9 +492,14 @@ function App() {
      setCurrentTask(updatedTask); // Update modal view immediately
 
      if (view === 'personal') {
-        const newTasks = personalTasks.map(t => t.id === currentTask.id ? updatedTask : t);
-        setPersonalTasks(newTasks);
-        if (isLoggedIn) fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks })});
+        if(isLoggedIn) {
+            const newTasks = (remotePersonalTasks || []).map(t => t.id === currentTask.id ? updatedTask : t);
+            mutatePersonalTasks(newTasks, false);
+            fetch('/api/user/data', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tasks: newTasks, workspaceId: activeWorkspaceId })});
+        } else {
+            const newTasks = localPersonalTasks.map(t => t.id === currentTask.id ? updatedTask : t);
+            setLocalPersonalTasks(newTasks);
+        }
      } else {
         mutateGroupTasks(activeTasks.map(t => t.id === currentTask.id ? updatedTask : t), false);
         try {
@@ -576,6 +637,7 @@ function App() {
           <Sidebar 
              currentView={view} 
              activeGroupId={activeGroupId} 
+             activeWorkspaceId={activeWorkspaceId}
              onNavigate={handleNavigate} 
              onCreateGroup={() => setShowCreateGroup(true)}
              onOpenSettings={openSettings}
@@ -586,6 +648,8 @@ function App() {
              themeColor={theme.hex}
              onOpenInvites={() => setShowInvites(true)}
              onOpenWhatsNew={() => setShowWhatsNew(true)}
+             workspaces={workspaces}
+             onRefreshWorkspaces={refreshUser}
           />
       </div>
       
@@ -595,7 +659,8 @@ function App() {
            <div className="w-64 h-full bg-zinc-900 animate-in slide-in-from-left" onClick={e => e.stopPropagation()}>
               <Sidebar 
                  currentView={view} 
-                 activeGroupId={activeGroupId} 
+                 activeGroupId={activeGroupId}
+                 activeWorkspaceId={activeWorkspaceId}
                  onNavigate={handleNavigate} 
                  onCreateGroup={() => { setSidebarOpen(false); setShowCreateGroup(true); }}
                  onOpenSettings={() => { setSidebarOpen(false); openSettings(); }}
@@ -606,6 +671,8 @@ function App() {
                  themeColor={theme.hex}
                  onOpenInvites={() => { setSidebarOpen(false); setShowInvites(true); }}
                  onOpenWhatsNew={() => { setSidebarOpen(false); setShowWhatsNew(true); }}
+                 workspaces={workspaces}
+                 onRefreshWorkspaces={refreshUser}
               />
            </div>
         </div>
@@ -620,7 +687,7 @@ function App() {
              </button>
              <div className="flex flex-col">
                 <h2 className="text-xl font-bold flex items-center gap-2">
-                    {view === 'personal' ? 'My Board' : (activeGroupName || 'Crew Board')}
+                    {view === 'personal' ? (activeWorkspaceName || 'My Board') : (activeGroupName || 'Crew Board')}
                 </h2>
                 {view === 'group' && activeGroupId && (
                    <div 
@@ -759,7 +826,7 @@ function App() {
          themeColor={theme.hex}
       />
       
-      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={(u) => { setCurrentUser(u); setShowLoginModal(false); }} themeColor={theme.hex} />
+      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} onLoginSuccess={(u) => { setCurrentUser(u); setShowLoginModal(false); refreshUser(); }} themeColor={theme.hex} />
       
       <DeleteModal 
         isOpen={!!deleteTaskId} 

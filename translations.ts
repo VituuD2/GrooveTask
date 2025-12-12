@@ -25,6 +25,8 @@ export interface Translation {
   editGrid: string;
   
   // Sidebar
+  workspaces: string;
+  crews: string;
   performance: string;
   dailyGroove: string;
   currentStreak: string;
@@ -99,6 +101,11 @@ export interface Translation {
   usernameTaken: string;
   usernameInvalid: string;
 
+  // Workspaces
+  newWorkspace: string;
+  workspaceLimit: string;
+  deleteWorkspace: string;
+
   // What's New
   whatsNew: string;
   version: string;
@@ -119,6 +126,8 @@ export const translations: Record<LanguageCode, Translation> = {
     appName: 'TASK',
     addTrack: 'Add Track',
     editGrid: 'Edit Grid',
+    workspaces: 'Workspaces',
+    crews: 'Crews',
     performance: 'Performance',
     dailyGroove: 'Your daily groove statistics.',
     currentStreak: 'Current Streak',
@@ -178,14 +187,17 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'changes remaining',
     usernameTaken: 'Username is already taken',
     usernameInvalid: 'Invalid username (3-20 chars, no spaces)',
+    newWorkspace: 'New Workspace',
+    workspaceLimit: 'Limit Reached (5/5)',
+    deleteWorkspace: 'Delete Workspace?',
     whatsNew: "What's New",
     version: "Version",
     gotIt: "Got it!",
     releaseNotes: [
-      "New: Chat Timestamps are now visible.",
-      "Update: Softer, more pleasant notification sounds.",
-      "Fix: Added delete button to Counter Track history log.",
-      "Improved Group Sync reliability."
+      "New: Workspaces! Create up to 5 personal boards to organize your life.",
+      "Chat Timestamps are now visible.",
+      "Softer, more pleasant notification sounds.",
+      "History Log management for Counter Tracks.",
     ]
   },
   'pt-BR': {
@@ -200,6 +212,8 @@ export const translations: Record<LanguageCode, Translation> = {
     appName: 'TAREFAS',
     addTrack: 'Adicionar',
     editGrid: 'Organizar',
+    workspaces: 'Workspaces',
+    crews: 'Grupos',
     performance: 'Desempenho',
     dailyGroove: 'Suas estatísticas diárias.',
     currentStreak: 'Sequência Atual',
@@ -259,14 +273,17 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'alterações restantes',
     usernameTaken: 'Nome de usuário já existe',
     usernameInvalid: 'Usuário inválido (3-20 chars, sem espaços)',
+    newWorkspace: 'Novo Workspace',
+    workspaceLimit: 'Limite Atingido (5/5)',
+    deleteWorkspace: 'Excluir Workspace?',
     whatsNew: "O que há de novo",
     version: "Versão",
     gotIt: "Entendi!",
     releaseNotes: [
-      "Novo: Horários das mensagens agora visíveis.",
-      "Update: Sons de notificação mais suaves e agradáveis.",
-      "Fix: Adicionado botão de excluir ao histórico do Contador.",
-      "Melhoria na confiabilidade da sincronização de grupos."
+      "Novo: Workspaces! Crie até 5 quadros pessoais para organizar sua vida.",
+      "Horários das mensagens agora visíveis.",
+      "Sons de notificação mais suaves e agradáveis.",
+      "Gerenciamento de Histórico para faixas de Contador.",
     ]
   },
   es: {
@@ -281,6 +298,8 @@ export const translations: Record<LanguageCode, Translation> = {
     appName: 'TAREAS',
     addTrack: 'Añadir',
     editGrid: 'Organizar',
+    workspaces: 'Espacios',
+    crews: 'Grupos',
     performance: 'Rendimiento',
     dailyGroove: 'Tus estadísticas diarias.',
     currentStreak: 'Racha Actual',
@@ -340,14 +359,17 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'cambios restantes',
     usernameTaken: 'El nombre de usuario ya existe',
     usernameInvalid: 'Usuario inválido (3-20 carácteres, sin espacios)',
+    newWorkspace: 'Nuevo Espacio',
+    workspaceLimit: 'Límite Alcanzado (5/5)',
+    deleteWorkspace: '¿Eliminar Espacio?',
     whatsNew: "Novedades",
     version: "Versión",
     gotIt: "¡Entendido!",
     releaseNotes: [
-      "Nuevo: Las marcas de tiempo del chat ahora son visibles.",
-      "Actualización: Sonidos de notificación más suaves.",
-      "Corrección: Botón de eliminar añadido al historial del Contador.",
-      "Sincronización de grupos mejorada."
+      "Nuevo: ¡Espacios de trabajo! Crea hasta 5 tableros personales.",
+      "Las marcas de tiempo del chat ahora son visibles.",
+      "Sonidos de notificación más suaves.",
+      "Gestión del historial para pistas de Contador.",
     ]
   },
   fr: {
@@ -362,6 +384,8 @@ export const translations: Record<LanguageCode, Translation> = {
     appName: 'TÂCHES',
     addTrack: 'Ajouter',
     editGrid: 'Organiser',
+    workspaces: 'Espaces',
+    crews: 'Équipes',
     performance: 'Performance',
     dailyGroove: 'Vos statistiques quotidiennes.',
     currentStreak: 'Série Actuelle',
@@ -414,21 +438,24 @@ export const translations: Record<LanguageCode, Translation> = {
     studioSettings: 'Paramètres Studio',
     lighting: 'Éclairage',
     language: 'Langue',
-    soundEffects: 'Effets Sonores',
+    soundEffects: 'Effets Sonoros',
     selectLanguage: 'Choisir la Langue',
     username: 'Nom de Scène (Utilisateur)',
     usernamePlaceholder: 'Entrez le nom d\'utilisateur',
     changesRemaining: 'changements restants',
     usernameTaken: 'Le nom d\'utilisateur est déjà pris',
     usernameInvalid: 'Nom d\'utilisateur invalide (3-20 caractères)',
+    newWorkspace: 'Nouvel Espace',
+    workspaceLimit: 'Limite Atteinte (5/5)',
+    deleteWorkspace: 'Supprimer l\'espace ?',
     whatsNew: "Quoi de neuf",
     version: "Version",
     gotIt: "Compris !",
     releaseNotes: [
-      "Nouveau : Horodatage du chat désormais visible.",
-      "Mise à jour : Sons de notification plus doux et agréables.",
-      "Correctif : Ajout d'un bouton de suppression à l'historique du compteur.",
-      "Fiabilité de la synchronisation de groupe améliorée."
+      "Nouveau : Espaces de travail ! Créez jusqu'à 5 tableaux personnels.",
+      "Horodatage du chat désormais visible.",
+      "Sons de notification plus doux.",
+      "Gestion de l'historique pour les compteurs.",
     ]
   },
   de: {
@@ -443,6 +470,8 @@ export const translations: Record<LanguageCode, Translation> = {
     appName: 'AUFGABEN',
     addTrack: 'Hinzufügen',
     editGrid: 'Ordnen',
+    workspaces: 'Workspaces',
+    crews: 'Crews',
     performance: 'Leistung',
     dailyGroove: 'Deine täglichen Groove-Statistiken.',
     currentStreak: 'Aktuelle Serie',
@@ -502,14 +531,17 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'Änderungen verbleibend',
     usernameTaken: 'Benutzername ist bereits vergeben',
     usernameInvalid: 'Ungültiger Benutzername (3-20 Zeichen)',
+    newWorkspace: 'Neuer Workspace',
+    workspaceLimit: 'Limit Erreicht (5/5)',
+    deleteWorkspace: 'Workspace löschen?',
     whatsNew: "Was ist neu",
     version: "Version",
     gotIt: "Verstanden!",
     releaseNotes: [
-      "Neu: Chat-Zeitstempel sind jetzt sichtbar.",
-      "Update: Weichere, angenehmere Benachrichtigungstöne.",
-      "Fix: Löschtaste zum Zähler-Verlauf hinzugefügt.",
-      "Verbesserte Zuverlässigkeit der Gruppensynchronisation."
+      "Neu: Workspaces! Erstelle bis zu 5 persönliche Boards.",
+      "Chat-Zeitstempel sind jetzt sichtbar.",
+      "Weichere Benachrichtigungstöne.",
+      "Verlaufsverwaltung für Zähler-Tracks.",
     ]
   }
 };
