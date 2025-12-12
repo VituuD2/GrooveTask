@@ -46,6 +46,13 @@ interface Group {
   createdAt: number;
 }
 
+interface GroupMember {
+  id: string;
+  username: string;
+  role: 'owner' | 'member';
+  joinedAt: number;
+}
+
 interface ChatMessage {
   id: string;
   sender: string;
@@ -339,7 +346,7 @@ app.post('/api/groups', requireAuth as any, async (req: any, res: any) => {
 
     // Atomic Multi transaction
     const pipeline = redis.pipeline();
-    pipeline.hset(`group:${groupId}:meta`, group as any);
+    pipeline.hset(`group:${groupId}:meta`, group as unknown as Record<string, unknown>);
     pipeline.sadd(`group:${groupId}:members`, userId);
     pipeline.sadd(`user:${userId}:groups`, groupId);
     await pipeline.exec();
@@ -364,20 +371,106 @@ app.get('/api/groups', requireAuth as any, async (req: any, res: any) => {
   return res.json(groups.filter(g => g !== null));
 });
 
-// Join Group (by Username Invite - simplistic implementation)
+// Get Pending Invites for User
+app.get('/api/user/invites', requireAuth as any, async (req: any, res: any) => {
+  const userId = req.user.uid;
+  const groupIds = await redis.smembers(`user:${userId}:invites`);
+  
+  if (groupIds.length === 0) return res.json([]);
+
+  const pipeline = redis.pipeline();
+  groupIds.forEach(gid => pipeline.hgetall(`group:${gid}:meta`));
+  const groups = await pipeline.exec();
+  
+  return res.json(groups.filter(g => g !== null));
+});
+
+// Invite User (To Pending)
 app.post('/api/groups/:id/invite', requireAuth as any, async (req: any, res: any) => {
   const { username } = req.body;
   const groupId = req.params.id;
-  const targetId = await redis.get<string>(`username:${username.toLowerCase()}`);
+
+  if (!username) return res.status(400).json({ error: 'Username required' });
   
+  // 1. Find User
+  const targetId = await redis.get<string>(`username:${username.toLowerCase()}`);
   if (!targetId) return res.status(404).json({ error: 'User not found' });
 
+  // 2. Check if already member
+  const isMember = await redis.sismember(`group:${groupId}:members`, targetId);
+  if (isMember) return res.status(409).json({ error: 'User is already a member' });
+
+  // 3. Add to invites
   const pipeline = redis.pipeline();
-  pipeline.sadd(`group:${groupId}:members`, targetId);
-  pipeline.sadd(`user:${targetId}:groups`, groupId);
+  pipeline.sadd(`group:${groupId}:invites`, targetId);
+  pipeline.sadd(`user:${targetId}:invites`, groupId);
   await pipeline.exec();
 
   return res.json({ success: true });
+});
+
+// Accept Invite
+app.post('/api/groups/:id/accept', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const userId = req.user.uid;
+
+  // Verify invite exists
+  const hasInvite = await redis.sismember(`user:${userId}:invites`, groupId);
+  if (!hasInvite) return res.status(400).json({ error: 'No invite found' });
+
+  const pipeline = redis.pipeline();
+  // Remove from invites
+  pipeline.srem(`group:${groupId}:invites`, userId);
+  pipeline.srem(`user:${userId}:invites`, groupId);
+  // Add to members
+  pipeline.sadd(`group:${groupId}:members`, userId);
+  pipeline.sadd(`user:${userId}:groups`, groupId);
+  await pipeline.exec();
+
+  return res.json({ success: true });
+});
+
+// Decline Invite
+app.post('/api/groups/:id/decline', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const userId = req.user.uid;
+
+  const pipeline = redis.pipeline();
+  pipeline.srem(`group:${groupId}:invites`, userId);
+  pipeline.srem(`user:${userId}:invites`, groupId);
+  await pipeline.exec();
+
+  return res.json({ success: true });
+});
+
+// Get Group Members
+app.get('/api/groups/:id/members', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const userId = req.user.uid;
+
+  // Security: Must be a member to see members
+  const isMember = await redis.sismember(`group:${groupId}:members`, userId);
+  if (!isMember) return res.status(403).json({ error: 'Not a member' });
+
+  const memberIds = await redis.smembers(`group:${groupId}:members`);
+  const groupMeta = await redis.hgetall<Group>(`group:${groupId}:meta`);
+  
+  // Fetch user details for each member
+  const pipeline = redis.pipeline();
+  memberIds.forEach(mid => pipeline.get(`user:${mid}`));
+  const users = await pipeline.exec();
+
+  const members = users
+    .map((u: any) => u ? u : null)
+    .filter(u => u !== null)
+    .map((u: UserProfile) => ({
+      id: u.id,
+      username: u.username,
+      role: groupMeta?.ownerId === u.id ? 'owner' : 'member',
+      joinedAt: 0 // Simplification, we don't store join date in set
+    }));
+
+  return res.json(members);
 });
 
 // --- GROUP TASKS (ATOMIC) ---

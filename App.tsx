@@ -21,6 +21,8 @@ import Toast, { ToastMessage, ToastType } from './components/Toast';
 import Sidebar from './components/Sidebar';
 import ChatPanel from './components/ChatPanel';
 import CreateGroupModal from './components/CreateGroupModal';
+import GroupInfoModal from './components/GroupInfoModal';
+import InvitesModal from './components/InvitesModal';
 
 // Robust fetcher that handles 401s and ensures arrays are returned for lists
 const fetcher = async (url: string) => {
@@ -77,6 +79,8 @@ function App() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [showInvites, setShowInvites] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -439,16 +443,27 @@ function App() {
 
   const handleInvite = async () => {
      if(!activeGroupId || !inviteUser) return;
-     const res = await fetch(`/api/groups/${activeGroupId}/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: inviteUser })
-     });
-     if(res.ok) {
-        addToast("User added to crew", "success");
-        setInviteUser('');
-     } else {
-        addToast("User not found", "error");
+     
+     try {
+        const res = await fetch(`/api/groups/${activeGroupId}/invite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: inviteUser })
+        });
+        const data = await res.json();
+        
+        if(res.ok) {
+            addToast("Invite sent!", "success");
+            setInviteUser('');
+        } else if (res.status === 404) {
+            addToast("User not found", "error");
+        } else if (res.status === 409) {
+            addToast("User is already in group", "info");
+        } else {
+            addToast("Failed to invite", "error");
+        }
+     } catch (e) {
+         addToast("Network error", "error");
      }
   };
 
@@ -483,6 +498,7 @@ function App() {
              onLogin={() => setShowLoginModal(true)}
              currentUser={currentUser}
              themeColor={theme.hex}
+             onOpenInvites={() => setShowInvites(true)}
           />
       </div>
       
@@ -501,6 +517,7 @@ function App() {
                  onLogin={() => { setSidebarOpen(false); setShowLoginModal(true); }}
                  currentUser={currentUser}
                  themeColor={theme.hex}
+                 onOpenInvites={() => { setSidebarOpen(false); setShowInvites(true); }}
               />
            </div>
         </div>
@@ -513,26 +530,31 @@ function App() {
              <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 bg-zinc-800 rounded-lg">
                 <Menu size={20} />
              </button>
-             <h2 className="text-xl font-bold flex items-center gap-2">
-                {view === 'personal' ? 'My Board' : 'Crew Board'}
-                {view === 'group' && (
-                   <span className="text-xs bg-zinc-800 px-2 py-0.5 rounded text-zinc-400 font-normal">
-                      ID: {activeGroupId?.slice(0,4)}...
-                   </span>
+             <div className="flex flex-col">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                    {view === 'personal' ? 'My Board' : 'Crew Board'}
+                </h2>
+                {view === 'group' && activeGroupId && (
+                   <div 
+                      className="text-xs text-zinc-400 font-medium cursor-pointer hover:text-white flex items-center gap-1"
+                      onClick={() => setShowGroupInfo(true)}
+                   >
+                      <Info size={12} /> Crew Info
+                   </div>
                 )}
-             </h2>
+             </div>
           </div>
           <div className="flex items-center gap-2">
              {view === 'group' && (
-                <div className="hidden sm:flex items-center bg-zinc-900 rounded-full px-2 border border-zinc-800 mr-2">
+                <div className="hidden sm:flex items-center bg-zinc-900 rounded-full px-2 border border-zinc-800 mr-2 transition-colors focus-within:border-white/50">
                    <input 
-                      className="bg-transparent border-none focus:outline-none text-xs w-24 px-2 py-1.5"
-                      placeholder="Add member..."
+                      className="bg-transparent border-none focus:outline-none text-xs w-24 px-2 py-1.5 text-white placeholder-zinc-500"
+                      placeholder="Invite user..."
                       value={inviteUser}
                       onChange={e => setInviteUser(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleInvite()}
                    />
-                   <button onClick={handleInvite} className="text-zinc-500 hover:text-white"><UserPlus size={14}/></button>
+                   <button onClick={handleInvite} className="text-zinc-500 hover:text-white transition-colors p-1"><UserPlus size={14}/></button>
                 </div>
              )}
              
@@ -653,6 +675,21 @@ function App() {
       />
 
       <WhatsNewModal isOpen={showWhatsNew} onClose={() => { setShowWhatsNew(false); localStorage.setItem('groovetask_version', APP_VERSION); }} themeColor={theme.hex} />
+      
+      {activeGroupId && (
+         <GroupInfoModal 
+            isOpen={showGroupInfo}
+            onClose={() => setShowGroupInfo(false)}
+            groupId={activeGroupId}
+            themeColor={theme.hex}
+         />
+      )}
+
+      <InvitesModal 
+         isOpen={showInvites}
+         onClose={() => setShowInvites(false)}
+         themeColor={theme.hex}
+      />
 
       {/* Task Creation/Edit/Info Modal */}
       {showTaskModal && (

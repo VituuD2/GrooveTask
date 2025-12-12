@@ -1,6 +1,6 @@
 import React from 'react';
 import useSWR from 'swr';
-import { LayoutGrid, Users, Plus, Hash, Settings, Activity, LogOut, User } from 'lucide-react';
+import { LayoutGrid, Users, Plus, Hash, Settings, Activity, LogOut, User, Mail } from 'lucide-react';
 import { Group, UserProfile } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -26,6 +26,7 @@ interface SidebarProps {
   onLogin: () => void;
   currentUser: UserProfile | null;
   themeColor: string;
+  onOpenInvites?: () => void; // New Prop
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
@@ -38,9 +39,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   onLogin,
   currentUser,
-  themeColor 
+  themeColor,
+  onOpenInvites
 }) => {
   const { data: groups } = useSWR<Group[]>('/api/groups', fetcher, { fallbackData: [] });
+  // Poll invites for notification badge
+  const { data: invites } = useSWR<Group[]>('/api/user/invites', fetcher, { refreshInterval: 5000 });
   const { t } = useLanguage();
 
   return (
@@ -64,6 +68,23 @@ const Sidebar: React.FC<SidebarProps> = ({
             <LayoutGrid size={18} />
             {t.appName}
           </button>
+          
+          {currentUser && (
+             <button
+               onClick={onOpenInvites}
+               className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 transition-colors mt-1"
+             >
+               <div className="flex items-center gap-3">
+                  <Mail size={18} />
+                  Inbox
+               </div>
+               {invites && invites.length > 0 && (
+                   <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                       {invites.length}
+                   </span>
+               )}
+             </button>
+          )}
         </div>
 
         <div>

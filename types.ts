@@ -1,3 +1,4 @@
+
 export type TaskType = 'simple' | 'counter';
 
 export interface LogEntry {
@@ -63,6 +64,13 @@ export interface Group {
   ownerId: string;
   createdAt: number;
   memberCount?: number;
+}
+
+export interface GroupMember {
+  id: string;
+  username: string;
+  role: 'owner' | 'member';
+  joinedAt: number;
 }
 
 export interface ChatMessage {
