@@ -20,13 +20,15 @@ interface ChatPanelProps {
   groupName?: string;
   currentUser: UserProfile;
   themeColor: string;
+  onMessageReceived?: () => void;
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, themeColor }) => {
+const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, themeColor, onMessageReceived }) => {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const prevMessagesLengthRef = useRef(0);
   
   // Smart polling configuration
   const { data: messages, mutate } = useSWR<ChatMessage[]>(
@@ -41,12 +43,25 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, 
     }
   );
 
-  // Auto-scroll logic
+  // Auto-scroll & Notification Logic
   useEffect(() => {
-    if (shouldAutoScroll && messages) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages) {
+      // Notification Check
+      if (messages.length > prevMessagesLengthRef.current) {
+          const lastMsg = messages[messages.length - 1];
+          // Only notify if message is NOT from me
+          if (lastMsg.sender !== currentUser.username) {
+             if (onMessageReceived) onMessageReceived();
+          }
+      }
+      prevMessagesLengthRef.current = messages.length;
+
+      // Scroll Check
+      if (shouldAutoScroll) {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
     }
-  }, [messages, shouldAutoScroll]);
+  }, [messages, shouldAutoScroll, currentUser.username, onMessageReceived]);
 
   const handleScroll = () => {
     if (containerRef.current) {

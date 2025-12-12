@@ -78,6 +78,12 @@ function App() {
   // Groups List for name lookup (Only fetch if logged in)
   const { data: myGroups } = useSWR<Group[]>(isLoggedIn ? '/api/groups' : null, fetcher);
 
+  // --- NOTIFICATIONS STATE ---
+  // Poll invites globally for title notifications
+  const { data: invites } = useSWR<Group[]>(isLoggedIn ? '/api/user/invites' : null, fetcher, { refreshInterval: 5000 });
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+  const prevInvitesCountRef = useRef(0);
+
   // Derived state for safe rendering
   const activeTasks = view === 'personal' ? personalTasks : (Array.isArray(groupTasks) ? groupTasks : []);
   const activeGroupName = myGroups?.find(g => g.id === activeGroupId)?.name;
@@ -205,6 +211,47 @@ function App() {
 
     return () => clearTimeout(timer);
   }, [tempUsername, showSettingsModal, isLoggedIn, currentUser]);
+
+  // --- Notification Logic ---
+  
+  // 1. Invites Sound
+  useEffect(() => {
+      if (invites && invites.length > prevInvitesCountRef.current) {
+          if (soundEnabled) playSound('notification');
+          addToast(t.appName + ": New Invite received", 'info');
+      }
+      prevInvitesCountRef.current = invites?.length || 0;
+  }, [invites, soundEnabled]);
+
+  // 2. Title Updates (Invites + Messages)
+  useEffect(() => {
+      const inviteCount = invites?.length || 0;
+      const totalNotifications = inviteCount + unreadMsgCount;
+      if (totalNotifications > 0) {
+          document.title = `(${totalNotifications}) GrooveTask`;
+      } else {
+          document.title = 'GrooveTask';
+      }
+  }, [invites, unreadMsgCount]);
+
+  // 3. Reset unread messages when window is visible
+  useEffect(() => {
+      const handleVisibilityChange = () => {
+          if (!document.hidden) {
+              setUnreadMsgCount(0);
+          }
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  const handleMessageNotification = () => {
+      if (soundEnabled) playSound('notification');
+      if (document.hidden) {
+          setUnreadMsgCount(prev => prev + 1);
+      }
+  };
+
 
   const applySettings = (settings: any) => {
     if (settings.themeId) setTheme(THEME_COLORS.find(t => t.id === settings.themeId) || THEME_COLORS[0]);
@@ -667,7 +714,8 @@ function App() {
                   groupId={activeGroupId} 
                   groupName={activeGroupName}
                   currentUser={currentUser} 
-                  themeColor={theme.hex} 
+                  themeColor={theme.hex}
+                  onMessageReceived={handleMessageNotification}
                 />
              </div>
           )}
