@@ -658,12 +658,42 @@ app.delete('/api/groups/:id/tasks/:taskId', requireAuth as any, async (req: any,
 // --- REAL-TIME CHAT (POLLING) ---
 
 app.get('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) => {
-  const groupId = req.params.id;
-  // Get last 100 messages
-  const raw = await redis.lrange<string>(`chat:${groupId}:messages`, -100, -1);
-  const messages = raw.map(s => JSON.parse(s));
-  res.set('Cache-Control', 'no-store');
-  return res.json(messages);
+  try {
+    const groupId = req.params.id;
+    const userId = req.user.uid;
+
+    // Verify membership (security and cleanup)
+    const isMember = await redis.sismember(`group:${groupId}:members`, userId);
+    if (!isMember) {
+        // Return empty array to stop UI errors/spinners if membership was revoked
+        return res.json([]); 
+    }
+
+    // Get last 100 messages
+    const raw = await redis.lrange(`chat:${groupId}:messages`, -100, -1);
+    
+    if (!raw || !Array.isArray(raw)) {
+        return res.json([]);
+    }
+
+    // Safely parse messages. Upstash might auto-deserialize if they are JSON strings.
+    const messages = raw.map((s: any) => {
+        try {
+            // If it's already an object (auto-deserialized), return it.
+            // If it's a string, parse it.
+            return typeof s === 'string' ? JSON.parse(s) : s;
+        } catch(e) {
+            return null;
+        }
+    }).filter(m => m !== null);
+
+    res.set('Cache-Control', 'no-store');
+    return res.json(messages);
+  } catch (error) {
+    console.error("Chat GET error:", error);
+    // Return empty array on server error to prevent frontend hangs
+    return res.status(500).json([]);
+  }
 });
 
 app.post('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) => {
