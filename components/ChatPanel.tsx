@@ -28,11 +28,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, 
   const containerRef = useRef<HTMLDivElement>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   
-  // Poll every 1.5 seconds for snappier chat
+  // Smart polling configuration
   const { data: messages, mutate } = useSWR<ChatMessage[]>(
     groupId ? `/api/groups/${groupId}/chat` : null, 
     fetcher, 
-    { refreshInterval: 1500, fallbackData: [] }
+    { 
+      refreshInterval: 1500,        // Poll every 1.5s when active
+      revalidateOnFocus: true,      // Fetch immediately when tab gets focus
+      refreshWhenHidden: false,     // Stop polling when tab is backgrounded
+      refreshWhenOffline: false,    // Stop polling when offline
+      fallbackData: [] 
+    }
   );
 
   // Auto-scroll logic
