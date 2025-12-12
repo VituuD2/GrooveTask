@@ -468,7 +468,12 @@ function App() {
             fetch('/api/user/data', { 
                 method: 'POST', 
                 headers: {'Content-Type':'application/json'}, 
-                body: JSON.stringify({ tasks: newTasks, order: newTasks.map(t => t.id), workspaceId: activeWorkspaceId })
+                body: JSON.stringify({ 
+                    tasks: newTasks, 
+                    order: newTasks.map(t => t.id), 
+                    workspaceId: activeWorkspaceId,
+                    forceEmpty: newTasks.length === 0 
+                })
             });
         } else {
             const newTasks = localPersonalTasks.filter(t => t.id !== deleteTaskId);
