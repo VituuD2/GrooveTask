@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import useSWR from 'swr';
 import { Send, MessageSquare, Hash, User } from 'lucide-react';
-import { ChatMessage, UserProfile } from '../types';
+import { ChatMessage, UserProfile, GroupMember } from '../types';
 import { playSound } from '../services/audio';
 
 const fetcher = async (url: string) => {
@@ -30,17 +30,24 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, 
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
   const prevMessagesLengthRef = useRef(0);
   
-  // Smart polling configuration
+  // Fetch messages
   const { data: messages, mutate } = useSWR<ChatMessage[]>(
     groupId ? `/api/groups/${groupId}/chat` : null, 
     fetcher, 
     { 
-      refreshInterval: 1500,        // Poll every 1.5s when active
-      revalidateOnFocus: true,      // Fetch immediately when tab gets focus
-      refreshWhenHidden: false,     // Stop polling when tab is backgrounded
-      refreshWhenOffline: false,    // Stop polling when offline
+      refreshInterval: 1500,        
+      revalidateOnFocus: true,      
+      refreshWhenHidden: false,     
+      refreshWhenOffline: false,    
       fallbackData: [] 
     }
+  );
+
+  // Fetch members to get avatars (cached efficiently by SWR)
+  const { data: members } = useSWR<GroupMember[]>(
+    groupId ? `/api/groups/${groupId}/members` : null,
+    fetcher,
+    { refreshInterval: 60000 } // Refresh less often
   );
 
   // Auto-scroll & Notification Logic
@@ -102,6 +109,11 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, 
     }
   };
 
+  const getAvatar = (username: string) => {
+      const member = members?.find(m => m.username === username);
+      return member?.avatar;
+  };
+
   if (!groupId) return null;
 
   return (
@@ -147,14 +159,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, 
             const prevMsg = messages[idx - 1];
             // Check if previous message was from same sender within 2 mins
             const isSequence = prevMsg && prevMsg.sender === msg.sender && (msg.timestamp - prevMsg.timestamp < 120000);
+            const avatar = getAvatar(msg.sender);
 
             return (
               <div key={msg.id} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'} ${isSequence ? 'mt-1' : 'mt-4'}`}>
                 
                 {/* Avatar (Only for Them, only if not sequence) */}
                 {!isMe && (
-                   <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-2 text-[10px] font-bold shrink-0 ${isSequence ? 'invisible' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
-                      {msg.sender[0].toUpperCase()}
+                   <div className={`w-8 h-8 rounded-full flex items-center justify-center mr-2 shrink-0 overflow-hidden ${isSequence ? 'invisible' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'}`}>
+                      {avatar ? (
+                          <img src={avatar} alt={msg.sender} className="w-full h-full object-cover" />
+                      ) : (
+                          <span className="text-[10px] font-bold">{msg.sender[0].toUpperCase()}</span>
+                      )}
                    </div>
                 )}
 

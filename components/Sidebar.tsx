@@ -220,10 +220,14 @@ const Sidebar: React.FC<SidebarProps> = ({
          {currentUser ? (
              <div className="flex items-center gap-3 px-2 py-2 mb-2">
                 <div 
-                   className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center font-bold text-xs border"
+                   className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center font-bold text-xs border overflow-hidden"
                    style={{ borderColor: themeColor, color: themeColor }}
                 >
-                   {currentUser.username[0].toUpperCase()}
+                   {currentUser.avatar ? (
+                      <img src={currentUser.avatar} alt="Me" className="w-full h-full object-cover" />
+                   ) : (
+                      currentUser.username[0].toUpperCase()
+                   )}
                 </div>
                 <div className="flex-1 overflow-hidden">
                    <div className="text-sm font-bold text-white truncate">{currentUser.username}</div>

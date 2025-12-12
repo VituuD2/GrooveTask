@@ -43,6 +43,7 @@ interface UserProfile {
   passwordHash: string;
   createdAt: number;
   settings: any;
+  avatar?: string;
 }
 
 interface Group {
@@ -73,6 +74,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', 1);
 app.use(helmet() as any);
+// Increased limit for avatar uploads (though we client-side resize, safety margin is good)
 app.use(express.json({ limit: '10mb' }) as any);
 app.use(cookieParser() as any);
 
@@ -330,6 +332,21 @@ app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
       isAuthenticated: true, 
       user: { ...user, data: { tasks, history }, workspaces } 
   });
+});
+
+// --- PROFILE AVATAR ---
+app.post('/api/user/avatar', requireAuth as any, async (req: any, res: any) => {
+    const userId = req.user.uid;
+    const { image } = req.body; // Base64 string
+
+    // Get current user
+    const user = await redis.get<UserProfile>(`user:${userId}`);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    user.avatar = image || undefined;
+    await redis.set(`user:${userId}`, user);
+
+    return res.json({ success: true, avatar: user.avatar });
 });
 
 // --- WORKSPACES API ---
@@ -653,7 +670,8 @@ app.get('/api/groups/:id/members', requireAuth as any, async (req: any, res: any
       id: u.id,
       username: u.username,
       role: groupMeta?.ownerId === u.id ? 'owner' : 'member',
-      joinedAt: 0 // Simplification, we don't store join date in set
+      joinedAt: 0,
+      avatar: u.avatar // explicitly include avatar
     }));
 
   res.set('Cache-Control', 'no-store');

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import useSWR, { mutate } from 'swr';
-import { Plus, Settings, Volume2, VolumeX, Menu, X, User, LogOut, Check, LayoutGrid, Info, UserPlus, Save, Globe, Edit2, Loader2, AlertCircle, Clock, Trash2, GripVertical } from 'lucide-react';
+import { Plus, Settings, Volume2, VolumeX, Menu, X, User, LogOut, Check, LayoutGrid, Info, UserPlus, Save, Globe, Edit2, Loader2, AlertCircle, Clock, Trash2, GripVertical, Image as ImageIcon, Upload } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import ReactSortablePkg from 'react-sortablejs';
 // Handle ESM/CommonJS import differences for Sortable
@@ -135,6 +135,7 @@ function App() {
   const [tempUsername, setTempUsername] = useState('');
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   // --- Effects ---
   const refreshUser = () => {
@@ -270,6 +271,79 @@ function App() {
 
   const addToast = (message: string, type: ToastType = 'info') => {
     setToasts(prev => [...prev, { id: uuidv4(), message, type }]);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (file.size > 2 * 1024 * 1024) {
+          addToast(t.imageTooBig, "error");
+          return;
+      }
+
+      setAvatarUploading(true);
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              const maxSize = 200; // Resize to max 200x200
+              
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > height) {
+                  if (width > maxSize) {
+                      height *= maxSize / width;
+                      width = maxSize;
+                  }
+              } else {
+                  if (height > maxSize) {
+                      width *= maxSize / height;
+                      height = maxSize;
+                  }
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              ctx?.drawImage(img, 0, 0, width, height);
+              
+              const base64 = canvas.toDataURL('image/jpeg', 0.8);
+
+              // Send to API
+              fetch('/api/user/avatar', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ image: base64 })
+              }).then(res => res.json()).then(data => {
+                  if(data.success) {
+                      setCurrentUser(prev => prev ? { ...prev, avatar: data.avatar } : null);
+                      addToast("Avatar updated", "success");
+                  }
+              }).finally(() => {
+                  setAvatarUploading(false);
+              });
+          };
+          img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+  };
+
+  const handleRemoveAvatar = () => {
+      setAvatarUploading(true);
+      fetch('/api/user/avatar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: null })
+      }).then(res => res.json()).then(data => {
+          setCurrentUser(prev => prev ? { ...prev, avatar: undefined } : null);
+          addToast("Avatar removed", "success");
+      }).finally(() => {
+          setAvatarUploading(false);
+      });
   };
 
   // --- Handlers ---
@@ -951,6 +1025,43 @@ function App() {
                     <button onClick={() => setShowSettingsModal(false)} className="text-zinc-500 hover:text-white"><X size={20}/></button>
                  </div>
                  
+                 {/* Avatar Upload (Only if logged in) */}
+                 {isLoggedIn && (
+                     <div className="mb-6">
+                         <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">{t.profilePicture}</h3>
+                         <div className="flex items-center gap-4">
+                             <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700 relative">
+                                 {currentUser?.avatar ? (
+                                     <img src={currentUser.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                                 ) : (
+                                     <span className="text-2xl font-bold text-zinc-600">{currentUser?.username?.[0].toUpperCase()}</span>
+                                 )}
+                                 {avatarUploading && (
+                                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                         <Loader2 className="animate-spin text-white" size={20} />
+                                     </div>
+                                 )}
+                             </div>
+                             <div className="flex flex-col gap-2">
+                                 <label className="cursor-pointer px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs font-medium text-white transition-colors flex items-center gap-2">
+                                     <Upload size={14} />
+                                     {t.uploadImage}
+                                     <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={avatarUploading} />
+                                 </label>
+                                 {currentUser?.avatar && (
+                                     <button 
+                                        onClick={handleRemoveAvatar}
+                                        disabled={avatarUploading}
+                                        className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-900/20 rounded-lg transition-colors text-left"
+                                     >
+                                         {t.removeImage}
+                                     </button>
+                                 )}
+                             </div>
+                         </div>
+                     </div>
+                 )}
+
                  {/* Username */}
                  {isLoggedIn && (
                      <div className="mb-6">

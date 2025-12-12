@@ -100,6 +100,10 @@ export interface Translation {
   changesRemaining: string;
   usernameTaken: string;
   usernameInvalid: string;
+  profilePicture: string;
+  uploadImage: string;
+  removeImage: string;
+  imageTooBig: string;
 
   // Workspaces
   newWorkspace: string;
@@ -187,6 +191,10 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'changes remaining',
     usernameTaken: 'Username is already taken',
     usernameInvalid: 'Invalid username (3-20 chars, no spaces)',
+    profilePicture: 'Profile Picture',
+    uploadImage: 'Upload Image',
+    removeImage: 'Remove',
+    imageTooBig: 'Image too large. Max 2MB.',
     newWorkspace: 'New Workspace',
     workspaceLimit: 'Limit Reached (5/5)',
     deleteWorkspace: 'Delete Workspace?',
@@ -194,10 +202,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Version",
     gotIt: "Got it!",
     releaseNotes: [
-      "New: Workspaces! Create up to 5 personal boards to organize your life.",
+      "New: Profile Pictures! Upload your own avatar.",
+      "Workspaces: Create up to 5 personal boards.",
       "Chat Timestamps are now visible.",
       "Softer, more pleasant notification sounds.",
-      "History Log management for Counter Tracks.",
     ]
   },
   'pt-BR': {
@@ -273,6 +281,10 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'alterações restantes',
     usernameTaken: 'Nome de usuário já existe',
     usernameInvalid: 'Usuário inválido (3-20 chars, sem espaços)',
+    profilePicture: 'Foto de Perfil',
+    uploadImage: 'Enviar Imagem',
+    removeImage: 'Remover',
+    imageTooBig: 'Imagem muito grande. Max 2MB.',
     newWorkspace: 'Novo Workspace',
     workspaceLimit: 'Limite Atingido (5/5)',
     deleteWorkspace: 'Excluir Workspace?',
@@ -280,10 +292,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Versão",
     gotIt: "Entendi!",
     releaseNotes: [
-      "Novo: Workspaces! Crie até 5 quadros pessoais para organizar sua vida.",
+      "Novo: Fotos de Perfil! Envie seu próprio avatar.",
+      "Workspaces: Crie até 5 quadros pessoais.",
       "Horários das mensagens agora visíveis.",
-      "Sons de notificação mais suaves e agradáveis.",
-      "Gerenciamento de Histórico para faixas de Contador.",
+      "Sons de notificação mais suaves.",
     ]
   },
   es: {
@@ -359,6 +371,10 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'cambios restantes',
     usernameTaken: 'El nombre de usuario ya existe',
     usernameInvalid: 'Usuario inválido (3-20 carácteres, sin espacios)',
+    profilePicture: 'Foto de Perfil',
+    uploadImage: 'Subir Imagen',
+    removeImage: 'Eliminar',
+    imageTooBig: 'Imagen demasiado grande. Max 2MB.',
     newWorkspace: 'Nuevo Espacio',
     workspaceLimit: 'Límite Alcanzado (5/5)',
     deleteWorkspace: '¿Eliminar Espacio?',
@@ -366,10 +382,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Versión",
     gotIt: "¡Entendido!",
     releaseNotes: [
-      "Nuevo: ¡Espacios de trabajo! Crea hasta 5 tableros personales.",
+      "Nuevo: ¡Fotos de Perfil! Sube tu propio avatar.",
+      "Espacios de trabajo: Crea hasta 5 tableros.",
       "Las marcas de tiempo del chat ahora son visibles.",
       "Sonidos de notificación más suaves.",
-      "Gestión del historial para pistas de Contador.",
     ]
   },
   fr: {
@@ -445,6 +461,10 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'changements restants',
     usernameTaken: 'Le nom d\'utilisateur est déjà pris',
     usernameInvalid: 'Nom d\'utilisateur invalide (3-20 caractères)',
+    profilePicture: 'Photo de Profil',
+    uploadImage: 'Télécharger',
+    removeImage: 'Supprimer',
+    imageTooBig: 'Image trop grande. Max 2MB.',
     newWorkspace: 'Nouvel Espace',
     workspaceLimit: 'Limite Atteinte (5/5)',
     deleteWorkspace: 'Supprimer l\'espace ?',
@@ -452,10 +472,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Version",
     gotIt: "Compris !",
     releaseNotes: [
-      "Nouveau : Espaces de travail ! Créez jusqu'à 5 tableaux personnels.",
+      "Nouveau : Photos de profil ! Téléchargez votre avatar.",
+      "Espaces de travail : Créez jusqu'à 5 tableaux.",
       "Horodatage du chat désormais visible.",
       "Sons de notification plus doux.",
-      "Gestion de l'historique pour les compteurs.",
     ]
   },
   de: {
@@ -531,6 +551,10 @@ export const translations: Record<LanguageCode, Translation> = {
     changesRemaining: 'Änderungen verbleibend',
     usernameTaken: 'Benutzername ist bereits vergeben',
     usernameInvalid: 'Ungültiger Benutzername (3-20 Zeichen)',
+    profilePicture: 'Profilbild',
+    uploadImage: 'Bild hochladen',
+    removeImage: 'Entfernen',
+    imageTooBig: 'Bild zu groß. Max 2MB.',
     newWorkspace: 'Neuer Workspace',
     workspaceLimit: 'Limit Erreicht (5/5)',
     deleteWorkspace: 'Workspace löschen?',
@@ -538,10 +562,10 @@ export const translations: Record<LanguageCode, Translation> = {
     version: "Version",
     gotIt: "Verstanden!",
     releaseNotes: [
-      "Neu: Workspaces! Erstelle bis zu 5 persönliche Boards.",
+      "Neu: Profilbilder! Lade deinen eigenen Avatar hoch.",
+      "Workspaces: Erstelle bis zu 5 persönliche Boards.",
       "Chat-Zeitstempel sind jetzt sichtbar.",
       "Weichere Benachrichtigungstöne.",
-      "Verlaufsverwaltung für Zähler-Tracks.",
     ]
   }
 };

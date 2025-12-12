@@ -62,6 +62,7 @@ export interface UserProfile {
   usernameChangeCount: number;
   createdAt: number;
   settings: UserSettings;
+  avatar?: string; // Base64 string
 }
 
 export interface Group {
@@ -77,6 +78,7 @@ export interface GroupMember {
   username: string;
   role: 'owner' | 'member';
   joinedAt: number;
+  avatar?: string;
 }
 
 export interface ChatMessage {

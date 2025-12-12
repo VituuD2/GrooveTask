@@ -96,9 +96,13 @@ const GroupInfoModal: React.FC<GroupInfoModalProps> = ({ isOpen, onClose, groupI
                 <div key={member.id} className={`flex items-center justify-between p-3 rounded-xl border ${memberIsOwner ? 'bg-zinc-800/60 border-yellow-500/30' : 'bg-zinc-900 border-zinc-800'}`}>
                    <div className="flex items-center gap-3">
                       <div 
-                        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${memberIsOwner ? 'bg-yellow-500/20 text-yellow-500 ring-1 ring-yellow-500/50' : 'bg-zinc-800 text-zinc-400'}`}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold overflow-hidden ${memberIsOwner ? 'bg-yellow-500/20 text-yellow-500 ring-1 ring-yellow-500/50' : 'bg-zinc-800 text-zinc-400'}`}
                       >
-                          {memberIsOwner ? <Crown size={14} /> : member.username[0].toUpperCase()}
+                          {member.avatar ? (
+                             <img src={member.avatar} alt={member.username} className="w-full h-full object-cover" />
+                          ) : (
+                             memberIsOwner ? <Crown size={14} /> : member.username[0].toUpperCase()
+                          )}
                       </div>
                       <div className="flex flex-col">
                           <span className={`text-sm font-bold ${memberIsOwner ? 'text-yellow-500' : 'text-zinc-200'}`}>
