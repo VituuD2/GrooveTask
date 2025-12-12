@@ -7,6 +7,7 @@ import { z } from 'zod';
 import helmet from 'helmet';
 import { Redis } from '@upstash/redis';
 import { v4 as uuidv4 } from 'uuid';
+import { put, del } from '@vercel/blob';
 
 // --- DATABASE CONFIGURATION ---
 const redis = new Redis({
@@ -75,7 +76,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', 1);
 app.use(helmet() as any);
-// Increased limit for avatar uploads (though we client-side resize, safety margin is good)
+// Increased limit for avatar uploads (base64 payload before upload)
 app.use(express.json({ limit: '10mb' }) as any);
 app.use(cookieParser() as any);
 
@@ -335,19 +336,80 @@ app.get('/api/auth/me', requireAuth as any, async (req: any, res: any) => {
   });
 });
 
-// --- PROFILE AVATAR ---
+// --- PROFILE AVATAR (VERCEL BLOB) ---
 app.post('/api/user/avatar', requireAuth as any, async (req: any, res: any) => {
     const userId = req.user.uid;
-    const { image } = req.body; // Base64 string
+    const { image } = req.body; // Expecting Base64 string "data:image/..." or null to delete
 
     // Get current user
     const user = await redis.get<UserProfile>(`user:${userId}`);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    user.avatar = image || undefined;
-    await redis.set(`user:${userId}`, user);
+    // Ensure we have a token from environment variables
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    
+    if (!token) {
+        console.error("BLOB_READ_WRITE_TOKEN is missing in environment variables.");
+        return res.status(500).json({ error: 'Server configuration error' });
+    }
 
-    return res.json({ success: true, avatar: user.avatar });
+    if (image) {
+        // --- UPLOAD FLOW ---
+        try {
+            // 1. Clean up old avatar if it exists and is hosted on Vercel Blob
+            if (user.avatar && user.avatar.includes('vercel-storage.com')) {
+                try {
+                    await del(user.avatar, { token });
+                } catch (e) {
+                    console.warn("Failed to delete old blob:", e);
+                    // Continue even if delete fails
+                }
+            }
+
+            // 2. Parse Base64 Data
+            // Format: "data:image/jpeg;base64,....."
+            const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            
+            if (!matches || matches.length !== 3) {
+                 return res.status(400).json({ error: 'Invalid image data format' });
+            }
+
+            const imageBuffer = Buffer.from(matches[2], 'base64');
+            const filename = `avatars/${userId}-${Date.now()}.jpg`;
+
+            // 3. Upload to Vercel Blob
+            const blob = await put(filename, imageBuffer, {
+                access: 'public',
+                contentType: 'image/jpeg',
+                token: token
+            });
+
+            // 4. Update User Record
+            user.avatar = blob.url;
+            await redis.set(`user:${userId}`, user);
+
+            return res.json({ success: true, avatar: user.avatar });
+
+        } catch (error) {
+            console.error("Blob Upload Error:", error);
+            return res.status(500).json({ error: 'Failed to upload image' });
+        }
+    } else {
+        // --- DELETE FLOW ---
+        try {
+            if (user.avatar && user.avatar.includes('vercel-storage.com')) {
+                await del(user.avatar, { token });
+            }
+        } catch (e) {
+            console.warn("Failed to delete blob:", e);
+        }
+
+        // Remove from User Record
+        delete user.avatar;
+        await redis.set(`user:${userId}`, user);
+
+        return res.json({ success: true, avatar: null });
+    }
 });
 
 // --- WORKSPACES API ---
