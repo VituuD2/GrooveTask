@@ -857,49 +857,54 @@ function App() {
               </div>
           </div>
 
-          {/* Tasks Grid */}
-          <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-zinc-950 relative">
-             {/* Stats Overlay Backdrop */}
-             {showStats && (
-                 <div className="absolute inset-0 bg-black/50 z-30" onClick={() => setShowStats(false)}></div>
-             )}
-
-             {activeTasks.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-4">
-                   <div className="w-24 h-24 border-2 border-dashed border-zinc-800 rounded-2xl flex items-center justify-center opacity-50"><Plus size={32} /></div>
-                   <p>{t.noTracks}</p>
-                   <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">{t.createOne}</button>
-                </div>
-             ) : (
-                <ReactSortable
-                   list={activeTasks}
-                   setList={handleSetList}
-                   animation={200}
-                   delay={10}
-                   disabled={!isReordering}
-                   ghostClass="sortable-ghost"
-                   dragClass="sortable-drag"
-                   className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-20"
-                >
-                   {activeTasks.map((task, i) => (
-                      <PadItem 
-                        key={task.id} 
-                        index={i} 
-                        task={task} 
-                        themeColor={theme.hex} 
-                        themeShadow={theme.shadow}
-                        onToggle={handleToggleTask}
-                        onEdit={openEditModal}
-                        onDelete={id => setDeleteTaskId(id)}
-                        onViewInfo={openInfoModal}
-                        isReordering={isReordering}
-                      />
-                   ))}
-                </ReactSortable>
-             )}
+          {/* Tasks Grid Wrapper */}
+          <div className="flex-1 relative flex flex-col min-w-0 bg-zinc-950">
              
+             {/* Scrollable Content */}
+             <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                 {/* Stats Overlay Backdrop */}
+                 {showStats && (
+                     <div className="absolute inset-0 bg-black/50 z-30" onClick={() => setShowStats(false)}></div>
+                 )}
+
+                 {activeTasks.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-4">
+                       <div className="w-24 h-24 border-2 border-dashed border-zinc-800 rounded-2xl flex items-center justify-center opacity-50"><Plus size={32} /></div>
+                       <p>{t.noTracks}</p>
+                       <button onClick={openCreateModal} className="text-sm underline hover:text-zinc-400">{t.createOne}</button>
+                    </div>
+                 ) : (
+                    <ReactSortable
+                       list={activeTasks}
+                       setList={handleSetList}
+                       animation={200}
+                       delay={10}
+                       disabled={!isReordering}
+                       ghostClass="sortable-ghost"
+                       dragClass="sortable-drag"
+                       className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-20"
+                    >
+                       {activeTasks.map((task, i) => (
+                          <PadItem 
+                            key={task.id} 
+                            index={i} 
+                            task={task} 
+                            themeColor={theme.hex} 
+                            themeShadow={theme.shadow}
+                            onToggle={handleToggleTask}
+                            onEdit={openEditModal}
+                            onDelete={id => setDeleteTaskId(id)}
+                            onViewInfo={openInfoModal}
+                            isReordering={isReordering}
+                          />
+                       ))}
+                    </ReactSortable>
+                 )}
+             </div>
+
+             {/* Add Button - Positioned absolute to the main area, not fixed to window */}
              {!isReordering && activeTasks.length > 0 && (
-                <div className="fixed bottom-6 right-6 z-20">
+                <div className="absolute bottom-6 right-6 z-20">
                     <button 
                       onClick={openCreateModal} 
                       className="w-14 h-14 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform hover:scale-110 active:scale-95"
@@ -909,7 +914,7 @@ function App() {
                     </button>
                 </div>
              )}
-          </main>
+          </div>
           
           {/* Chat Panel (Right Side for Group View) */}
           {view === 'group' && activeGroupId && currentUser && (
