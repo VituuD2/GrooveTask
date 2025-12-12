@@ -3,6 +3,7 @@ import useSWR from 'swr';
 import { LayoutGrid, Users, Plus, Hash, Settings, Activity, LogOut, User, Mail } from 'lucide-react';
 import { Group, UserProfile } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
+import { APP_VERSION } from '../constants';
 
 const fetcher = async (url: string) => {
   try {
@@ -26,7 +27,8 @@ interface SidebarProps {
   onLogin: () => void;
   currentUser: UserProfile | null;
   themeColor: string;
-  onOpenInvites?: () => void; // New Prop
+  onOpenInvites?: () => void;
+  onOpenWhatsNew?: () => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
@@ -40,7 +42,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onLogin,
   currentUser,
   themeColor,
-  onOpenInvites
+  onOpenInvites,
+  onOpenWhatsNew
 }) => {
   const { data: groups } = useSWR<Group[]>('/api/groups', fetcher, { fallbackData: [] });
   // Poll invites for notification badge
@@ -166,6 +169,15 @@ const Sidebar: React.FC<SidebarProps> = ({
                {t.logout}
             </button>
          )}
+
+         <div className="pt-2 flex justify-center">
+            <button 
+              onClick={onOpenWhatsNew} 
+              className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              {APP_VERSION}
+            </button>
+         </div>
       </div>
     </div>
   );

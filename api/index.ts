@@ -346,7 +346,7 @@ app.post('/api/groups', requireAuth as any, async (req: any, res: any) => {
 
     // Atomic Multi transaction
     const pipeline = redis.pipeline();
-    pipeline.hset(`group:${groupId}:meta`, group as unknown as Record<string, unknown>);
+    pipeline.hset(`group:${groupId}:meta`, group as any);
     pipeline.sadd(`group:${groupId}:members`, userId);
     pipeline.sadd(`user:${userId}:groups`, groupId);
     await pipeline.exec();

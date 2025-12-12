@@ -499,6 +499,7 @@ function App() {
              currentUser={currentUser}
              themeColor={theme.hex}
              onOpenInvites={() => setShowInvites(true)}
+             onOpenWhatsNew={() => setShowWhatsNew(true)}
           />
       </div>
       
@@ -518,6 +519,7 @@ function App() {
                  currentUser={currentUser}
                  themeColor={theme.hex}
                  onOpenInvites={() => { setSidebarOpen(false); setShowInvites(true); }}
+                 onOpenWhatsNew={() => { setSidebarOpen(false); setShowWhatsNew(true); }}
               />
            </div>
         </div>
@@ -820,8 +822,15 @@ function App() {
                      <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">{t.lighting}</h3>
                      <div className="grid grid-cols-4 gap-2">
                          {THEME_COLORS.map(c => (
-                             <button key={c.id} onClick={() => setTempTheme(c)} className={`aspect-square rounded-xl border-2 flex items-center justify-center ${tempTheme.id === c.id ? 'border-white' : 'border-transparent hover:bg-zinc-800'}`}>
-                                 <div className="w-6 h-6 rounded-full" style={{ backgroundColor: c.hex }} />
+                             <button 
+                                key={c.id} 
+                                onClick={() => setTempTheme(c)} 
+                                className={`aspect-square rounded-xl border-2 flex items-center justify-center transition-all duration-300 ${tempTheme.id === c.id ? 'border-white scale-105' : 'border-transparent hover:bg-zinc-800'}`}
+                                style={{
+                                    boxShadow: tempTheme.id === c.id ? `0 0 20px ${c.shadow}` : 'none'
+                                }}
+                             >
+                                 <div className="w-6 h-6 rounded-full shadow-sm" style={{ backgroundColor: c.hex }} />
                              </button>
                          ))}
                      </div>
@@ -843,7 +852,10 @@ function App() {
                     onClick={handleSaveSettings} 
                     disabled={!canSave}
                     className="w-full py-3 rounded-xl font-bold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed" 
-                    style={{ backgroundColor: canSave ? tempTheme.hex : '#3f3f46' }}
+                    style={{ 
+                        backgroundColor: canSave ? tempTheme.hex : '#3f3f46',
+                        boxShadow: canSave ? `0 0 20px ${tempTheme.shadow}` : 'none'
+                    }}
                  >
                     {t.saveChanges}
                  </button>
