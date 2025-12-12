@@ -48,9 +48,20 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // --- Core State ---
-  // Personal Tasks (Local + Sync)
-  const [personalTasks, setPersonalTasks] = useState<Task[]>([]);
-  const [history, setHistory] = useState<DailyStat[]>([]);
+  // Personal Tasks (Local + Sync) - Lazy Initialization to prevent wipe on refresh
+  const [personalTasks, setPersonalTasks] = useState<Task[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? (JSON.parse(saved).tasks || []) : [];
+    } catch { return []; }
+  });
+  
+  const [history, setHistory] = useState<DailyStat[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? (JSON.parse(saved).history || []) : [];
+    } catch { return []; }
+  });
   
   // Group Tasks (SWR)
   const { data: groupTasks, mutate: mutateGroupTasks } = useSWR<Task[]>(
@@ -116,23 +127,12 @@ function App() {
         setCurrentUser(data.user);
         if(data.user.settings) applySettings(data.user.settings);
         if(data.user.data) {
-           setPersonalTasks(data.user.data.tasks || []);
-           setHistory(data.user.data.history || []);
+           // Merge or overwrite strategy could be complex, simple overwrite for now
+           if (data.user.data.tasks) setPersonalTasks(data.user.data.tasks);
+           if (data.user.data.history) setHistory(data.user.data.history);
         }
       }
     }).catch(() => {});
-
-    // Local Storage Fallback for Personal
-    const savedData = localStorage.getItem(STORAGE_KEY);
-    if (savedData && !isLoggedIn) {
-      try {
-        const parsed = JSON.parse(savedData);
-        setPersonalTasks(Array.isArray(parsed.tasks) ? parsed.tasks : []);
-        setHistory(Array.isArray(parsed.history) ? parsed.history : []);
-      } catch (e) {
-        console.error("Failed to parse local storage");
-      }
-    }
     
     // Check Version
     if (localStorage.getItem('groovetask_version') !== APP_VERSION) {
@@ -233,13 +233,20 @@ function App() {
   // --- Task Logic ---
 
   const handleSetList = (newList: Task[]) => {
-    // ReactSortable calls this whenever items are dragged
     if (view === 'personal') {
       setPersonalTasks(newList);
     } else {
-      // For groups, we optimistic update, but backend needs an order implementation
-      // For now, we just update local SWR cache
+      // Optimistic update
       mutateGroupTasks(newList, false);
+      
+      // Save order to backend
+      if (activeGroupId) {
+          fetch(`/api/groups/${activeGroupId}/tasks/order`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ order: newList.map(t => t.id) })
+          }).catch(e => console.error("Failed to save order", e));
+      }
     }
   };
 

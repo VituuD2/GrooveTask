@@ -574,13 +574,40 @@ app.get('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) 
   const isMember = await redis.sismember(`group:${groupId}:members`, req.user.uid);
   if (!isMember) return res.status(403).json({ error: 'Not a member' });
 
-  const rawMap = await redis.hgetall<Record<string, string>>(`tasks:group:${groupId}`);
+  const [rawMap, orderRaw] = await Promise.all([
+    redis.hgetall<Record<string, string>>(`tasks:group:${groupId}`),
+    redis.get<string>(`tasks:group:order:${groupId}`) // It might be stored as string (JSON)
+  ]);
+
   res.set('Cache-Control', 'no-store');
   
   if (!rawMap) return res.json([]);
 
-  const tasks = Object.values(rawMap).map(s => JSON.parse(s));
-  return res.json(tasks.sort((a: any, b: any) => a.createdAt - b.createdAt));
+  let tasks = Object.values(rawMap).map(s => JSON.parse(s));
+  
+  // Sort by order
+  let order: string[] = [];
+  try {
+      if (orderRaw) order = typeof orderRaw === 'string' ? JSON.parse(orderRaw) : orderRaw;
+  } catch(e) {}
+
+  if (order && Array.isArray(order) && order.length > 0) {
+      const taskMap = new Map(tasks.map((t: any) => [t.id, t]));
+      const sortedTasks: any[] = [];
+      order.forEach(id => {
+        const t = taskMap.get(id);
+        if (t) {
+          sortedTasks.push(t);
+          taskMap.delete(id);
+        }
+      });
+      // Append any new tasks not in order list
+      tasks = [...sortedTasks, ...Array.from(taskMap.values())];
+  } else {
+      tasks.sort((a: any, b: any) => a.createdAt - b.createdAt);
+  }
+
+  return res.json(tasks);
 });
 
 // Update/Create Task (HSET)
@@ -600,6 +627,20 @@ app.post('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any)
 
   await redis.hset(`tasks:group:${groupId}`, { [task.id]: JSON.stringify(task) });
   return res.json(task);
+});
+
+// Post Group Order
+app.post('/api/groups/:id/tasks/order', requireAuth as any, async (req: any, res: any) => {
+  const groupId = req.params.id;
+  const { order } = req.body;
+  
+  const isMember = await redis.sismember(`group:${groupId}:members`, req.user.uid);
+  if (!isMember) return res.status(403).json({ error: 'Not a member' });
+  
+  if (!Array.isArray(order)) return res.status(400).json({error: 'Invalid order'});
+
+  await redis.set(`tasks:group:order:${groupId}`, JSON.stringify(order));
+  return res.json({ success: true });
 });
 
 // Delete Task (HDEL)
