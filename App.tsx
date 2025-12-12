@@ -85,13 +85,22 @@ function App() {
     { refreshInterval: 2000, fallbackData: [] }
   );
   
-  // Groups List for name lookup (Only fetch if logged in)
-  const { data: myGroups } = useSWR<Group[]>(isLoggedIn ? '/api/groups' : null, fetcher);
+  // Groups List (Fetch here to manage notifications)
+  const { data: myGroups, mutate: mutateGroups } = useSWR<Group[]>(isLoggedIn ? '/api/groups' : null, fetcher, { refreshInterval: 3000 });
 
   // --- NOTIFICATIONS STATE ---
   // Poll invites globally for title notifications
   const { data: invites } = useSWR<Group[]>(isLoggedIn ? '/api/user/invites' : null, fetcher, { refreshInterval: 5000 });
-  const [unreadMsgCount, setUnreadMsgCount] = useState(0);
+  const [unreadMsgCount, setUnreadMsgCount] = useState(0); // Tracks LOCAL temporary count (like toast popups)
+  const [unreadGroupIds, setUnreadGroupIds] = useState<string[]>([]); // Tracks permanent red dots
+  
+  // Load Read Times from Local Storage
+  const [readTimes, setReadTimes] = useState<Record<string, number>>(() => {
+      try {
+          return JSON.parse(localStorage.getItem('groovetask_read_times') || '{}');
+      } catch { return {}; }
+  });
+
   const prevInvitesCountRef = useRef(0);
 
   // Derived state for safe rendering
@@ -192,6 +201,11 @@ function App() {
     }
   }, [theme, soundEnabled]);
 
+  // Persist Read Times
+  useEffect(() => {
+      localStorage.setItem('groovetask_read_times', JSON.stringify(readTimes));
+  }, [readTimes]);
+
   // Username Check Effect
   useEffect(() => {
     if (!showSettingsModal || !isLoggedIn) return;
@@ -224,7 +238,26 @@ function App() {
 
   // --- Notification Logic ---
   
-  // 1. Invites Sound
+  // 1. Calculate Unread Group Messages & Update Title
+  useEffect(() => {
+      if (myGroups) {
+          const unreadIds: string[] = [];
+          myGroups.forEach(g => {
+              const lastMsg = g.lastMessageAt || 0;
+              const lastRead = readTimes[g.id] || 0;
+              
+              // If active group has update, auto-mark read if document is visible
+              if (g.id === activeGroupId && !document.hidden && lastMsg > lastRead) {
+                  setReadTimes(prev => ({ ...prev, [g.id]: Date.now() }));
+              } else if (lastMsg > lastRead) {
+                  unreadIds.push(g.id);
+              }
+          });
+          setUnreadGroupIds(unreadIds);
+      }
+  }, [myGroups, readTimes, activeGroupId]);
+
+  // 2. Invites Sound
   useEffect(() => {
       if (invites && invites.length > prevInvitesCountRef.current) {
           if (soundEnabled) playSound('notification');
@@ -233,35 +266,17 @@ function App() {
       prevInvitesCountRef.current = invites?.length || 0;
   }, [invites, soundEnabled]);
 
-  // 2. Title Updates (Invites + Messages)
+  // 3. Title Updates (Invites + Unread Groups)
   useEffect(() => {
       const inviteCount = invites?.length || 0;
-      const totalNotifications = inviteCount + unreadMsgCount;
+      const unreadCount = unreadGroupIds.length;
+      const totalNotifications = inviteCount + unreadCount;
       if (totalNotifications > 0) {
           document.title = `(${totalNotifications}) GrooveTask`;
       } else {
           document.title = 'GrooveTask';
       }
-  }, [invites, unreadMsgCount]);
-
-  // 3. Reset unread messages when window is visible
-  useEffect(() => {
-      const handleVisibilityChange = () => {
-          if (!document.hidden) {
-              setUnreadMsgCount(0);
-          }
-      };
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-      return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
-
-  const handleMessageNotification = () => {
-      if (soundEnabled) playSound('notification');
-      if (document.hidden) {
-          setUnreadMsgCount(prev => prev + 1);
-      }
-  };
-
+  }, [invites, unreadGroupIds]);
 
   const applySettings = (settings: any) => {
     if (settings.themeId) setTheme(THEME_COLORS.find(t => t.id === settings.themeId) || THEME_COLORS[0]);
@@ -350,7 +365,11 @@ function App() {
   const handleNavigate = (newView: 'personal' | 'group', id?: string) => {
     setView(newView);
     if (newView === 'group') {
-        if(id) setActiveGroupId(id);
+        if(id) {
+            setActiveGroupId(id);
+            // Mark read on navigation
+            setReadTimes(prev => ({...prev, [id]: Date.now()}));
+        }
     } else {
         // Switching to personal workspace
         setActiveWorkspaceId(id || 'default');
@@ -364,6 +383,10 @@ function App() {
       setView('personal');
       setActiveGroupId(null);
       setActiveWorkspaceId('default');
+  };
+
+  const handleMessageNotification = () => {
+     if (soundEnabled) playSound('notification');
   };
 
   // --- Task Logic ---
@@ -729,6 +752,10 @@ function App() {
              onOpenWhatsNew={() => setShowWhatsNew(true)}
              workspaces={workspaces}
              onRefreshWorkspaces={refreshUser}
+             
+             // Props for Notifications (Bubbled up from App)
+             groups={myGroups || []}
+             unreadGroupIds={unreadGroupIds}
           />
       </div>
       
@@ -752,6 +779,9 @@ function App() {
                  onOpenWhatsNew={() => { setSidebarOpen(false); setShowWhatsNew(true); }}
                  workspaces={workspaces}
                  onRefreshWorkspaces={refreshUser}
+                 
+                 groups={myGroups || []}
+                 unreadGroupIds={unreadGroupIds}
               />
            </div>
         </div>

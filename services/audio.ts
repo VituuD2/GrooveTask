@@ -1,3 +1,4 @@
+
 // Simple synth to avoid external dependencies
 export const playSound = (type: 'check' | 'complete' | 'click' | 'notification', frequencyOverride?: number) => {
   const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -89,12 +90,20 @@ export const playSound = (type: 'check' | 'complete' | 'click' | 'notification',
       oscC.stop(time + 1.5);
     });
   } else if (type === 'click') {
-    // Subtle mechanical click
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(200, now);
-    gain.gain.setValueAtTime(0.05, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    // UPDATED: "Message Sent" Pop
+    // Replaced the harsh square wave with a soft sine "bubble" sound
+    osc.type = 'sine';
+    
+    // Quick pitch drop for a "pop" sensation
+    osc.frequency.setValueAtTime(600, now);
+    osc.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+    
+    // Fast envelope
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.15, now + 0.01); // Quick attack
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15); // Quick decay
+    
     osc.start(now);
-    osc.stop(now + 0.05);
+    osc.stop(now + 0.15);
   }
 };

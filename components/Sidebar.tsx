@@ -5,17 +5,6 @@ import { Group, UserProfile, Workspace } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { APP_VERSION } from '../constants';
 
-const fetcher = async (url: string) => {
-  try {
-    const res = await fetch(url);
-    if (res.status === 401) return [];
-    if (!res.ok) throw new Error('Failed to fetch');
-    return await res.json();
-  } catch (e) {
-    return [];
-  }
-};
-
 interface SidebarProps {
   currentView: 'personal' | 'group';
   activeGroupId: string | null;
@@ -32,7 +21,20 @@ interface SidebarProps {
   onOpenWhatsNew?: () => void;
   workspaces: Workspace[];
   onRefreshWorkspaces: () => void;
+  groups: Group[]; // Passed from App to share state
+  unreadGroupIds?: string[]; // IDs of groups with unread messages
 }
+
+const fetcher = async (url: string) => {
+  try {
+    const res = await fetch(url);
+    if (res.status === 401) return [];
+    if (!res.ok) throw new Error('Failed to fetch');
+    return await res.json();
+  } catch (e) {
+    return [];
+  }
+};
 
 const Sidebar: React.FC<SidebarProps> = ({ 
   currentView, 
@@ -49,9 +51,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   onOpenInvites,
   onOpenWhatsNew,
   workspaces,
-  onRefreshWorkspaces
+  onRefreshWorkspaces,
+  groups,
+  unreadGroupIds = []
 }) => {
-  const { data: groups } = useSWR<Group[]>(currentUser ? '/api/groups' : null, fetcher, { fallbackData: [] });
   // Poll invites for notification badge
   const { data: invites } = useSWR<Group[]>(currentUser ? '/api/user/invites' : null, fetcher, { refreshInterval: 5000 });
   const { t } = useLanguage();
@@ -198,14 +201,20 @@ const Sidebar: React.FC<SidebarProps> = ({
               <button
                 key={group.id}
                 onClick={() => onNavigate('group', group.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                   currentView === 'group' && activeGroupId === group.id
                     ? 'bg-zinc-800 text-white' 
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
                 }`}
               >
-                <Hash size={16} className="text-zinc-600" />
-                {group.name}
+                <div className="flex items-center gap-3 overflow-hidden">
+                    <Hash size={16} className="text-zinc-600 shrink-0" />
+                    <span className="truncate">{group.name}</span>
+                </div>
+                {/* Red Dot Notification */}
+                {unreadGroupIds.includes(group.id) && activeGroupId !== group.id && (
+                    <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] shrink-0 animate-pulse" />
+                )}
               </button>
             ))}
             {(!groups || groups.length === 0) && (

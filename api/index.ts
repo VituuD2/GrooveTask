@@ -51,6 +51,7 @@ interface Group {
   name: string;
   ownerId: string;
   createdAt: number;
+  lastMessageAt?: number;
 }
 
 interface GroupMember {
@@ -828,13 +829,20 @@ app.post('/api/groups/:id/chat', requireAuth as any, async (req: any, res: any) 
   // Securely get user from session
   const user = await redis.get<UserProfile>(`user:${req.user.uid}`);
   const senderName = user ? user.username : 'Unknown';
+  const timestamp = Date.now();
   
   const msg: ChatMessage = {
     id: uuidv4(),
     sender: senderName,
     text,
-    timestamp: Date.now()
+    timestamp
   };
+
+  // Update Group Meta with lastMessageAt
+  const groupMeta = await redis.hgetall<Record<string, any>>(`group:${groupId}:meta`);
+  if (groupMeta) {
+      await redis.hset(`group:${groupId}:meta`, { ...groupMeta, lastMessageAt: timestamp });
+  }
 
   await redis.rpush(`chat:${groupId}:messages`, JSON.stringify(msg));
   // Trim to keep only last 500 messages to save space

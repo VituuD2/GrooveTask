@@ -71,6 +71,7 @@ export interface Group {
   ownerId: string;
   createdAt: number;
   memberCount?: number;
+  lastMessageAt?: number; // Timestamp of last message
 }
 
 export interface GroupMember {

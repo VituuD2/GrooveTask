@@ -95,7 +95,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ groupId, groupName, currentUser, 
     mutate([...(messages || []), optimisticMsg], false);
     setInput('');
     setShouldAutoScroll(true); // Force scroll on send
-    playSound('click');
+    playSound('click'); // Updated soft sound
 
     try {
       await fetch(`/api/groups/${groupId}/chat`, {
