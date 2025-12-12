@@ -586,6 +586,11 @@ app.get('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) 
 // Update/Create Task (HSET)
 app.post('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any) => {
   const groupId = req.params.id;
+  
+  // Verify membership
+  const isMember = await redis.sismember(`group:${groupId}:members`, req.user.uid);
+  if (!isMember) return res.status(403).json({ error: 'Not a member' });
+
   const task = req.body as Task; // Full task object
   
   // Tag the updater
@@ -600,6 +605,11 @@ app.post('/api/groups/:id/tasks', requireAuth as any, async (req: any, res: any)
 // Delete Task (HDEL)
 app.delete('/api/groups/:id/tasks/:taskId', requireAuth as any, async (req: any, res: any) => {
   const { id, taskId } = req.params;
+  
+  // Verify membership
+  const isMember = await redis.sismember(`group:${id}:members`, req.user.uid);
+  if (!isMember) return res.status(403).json({ error: 'Not a member' });
+
   await redis.hdel(`tasks:group:${id}`, taskId);
   return res.json({ success: true });
 });
